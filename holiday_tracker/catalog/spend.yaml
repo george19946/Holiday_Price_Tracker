@@ -1,0 +1,276 @@
+# Estimated daily spend per person at the "normal" style tier, in EUR.
+# Derived from general public cost-of-living data, not a live feed --
+# there is no free live cost-of-living API (Numbeo now charges $260/mo).
+# Correct a figure here if you know better for a given city.
+# Actual spend = (food + local_transport + activities) * style multiplier
+# (thrifty 0.7 / normal 1.0 / comfortable 1.6) * party_size * nights.
+paris:
+  food: 45
+  local_transport: 8
+  activities: 15
+  currency: EUR
+amsterdam:
+  food: 42
+  local_transport: 9
+  activities: 15
+  currency: EUR
+brussels:
+  food: 38
+  local_transport: 7
+  activities: 12
+  currency: EUR
+dublin:
+  food: 45
+  local_transport: 8
+  activities: 15
+  currency: EUR
+luxembourg_city:
+  food: 48
+  local_transport: 6
+  activities: 12
+  currency: EUR
+zurich:
+  food: 55
+  local_transport: 10
+  activities: 18
+  currency: EUR
+geneva:
+  food: 55
+  local_transport: 10
+  activities: 18
+  currency: EUR
+barcelona:
+  food: 32
+  local_transport: 6
+  activities: 12
+  currency: EUR
+madrid:
+  food: 32
+  local_transport: 6
+  activities: 12
+  currency: EUR
+valencia:
+  food: 28
+  local_transport: 5
+  activities: 10
+  currency: EUR
+seville:
+  food: 26
+  local_transport: 5
+  activities: 10
+  currency: EUR
+malaga:
+  food: 26
+  local_transport: 5
+  activities: 10
+  currency: EUR
+palma_de_mallorca:
+  food: 30
+  local_transport: 6
+  activities: 12
+  currency: EUR
+lisbon:
+  food: 28
+  local_transport: 5
+  activities: 10
+  currency: EUR
+porto:
+  food: 26
+  local_transport: 5
+  activities: 10
+  currency: EUR
+faro:
+  food: 26
+  local_transport: 5
+  activities: 10
+  currency: EUR
+rome:
+  food: 35
+  local_transport: 7
+  activities: 14
+  currency: EUR
+milan:
+  food: 38
+  local_transport: 7
+  activities: 14
+  currency: EUR
+venice:
+  food: 40
+  local_transport: 8
+  activities: 16
+  currency: EUR
+florence:
+  food: 35
+  local_transport: 6
+  activities: 14
+  currency: EUR
+naples:
+  food: 28
+  local_transport: 5
+  activities: 10
+  currency: EUR
+bologna:
+  food: 32
+  local_transport: 6
+  activities: 12
+  currency: EUR
+athens:
+  food: 26
+  local_transport: 5
+  activities: 10
+  currency: EUR
+thessaloniki:
+  food: 22
+  local_transport: 4
+  activities: 8
+  currency: EUR
+valletta:
+  food: 30
+  local_transport: 5
+  activities: 12
+  currency: EUR
+berlin:
+  food: 32
+  local_transport: 8
+  activities: 12
+  currency: EUR
+munich:
+  food: 38
+  local_transport: 8
+  activities: 14
+  currency: EUR
+hamburg:
+  food: 35
+  local_transport: 8
+  activities: 12
+  currency: EUR
+frankfurt:
+  food: 36
+  local_transport: 8
+  activities: 12
+  currency: EUR
+cologne:
+  food: 32
+  local_transport: 7
+  activities: 12
+  currency: EUR
+vienna:
+  food: 34
+  local_transport: 7
+  activities: 14
+  currency: EUR
+salzburg:
+  food: 32
+  local_transport: 6
+  activities: 14
+  currency: EUR
+warsaw:
+  food: 22
+  local_transport: 4
+  activities: 8
+  currency: EUR
+krakow:
+  food: 20
+  local_transport: 4
+  activities: 8
+  currency: EUR
+prague:
+  food: 24
+  local_transport: 5
+  activities: 9
+  currency: EUR
+budapest:
+  food: 22
+  local_transport: 4
+  activities: 8
+  currency: EUR
+bratislava:
+  food: 22
+  local_transport: 4
+  activities: 8
+  currency: EUR
+ljubljana:
+  food: 26
+  local_transport: 5
+  activities: 10
+  currency: EUR
+copenhagen:
+  food: 48
+  local_transport: 9
+  activities: 15
+  currency: EUR
+stockholm:
+  food: 45
+  local_transport: 9
+  activities: 15
+  currency: EUR
+oslo:
+  food: 50
+  local_transport: 10
+  activities: 16
+  currency: EUR
+helsinki:
+  food: 42
+  local_transport: 8
+  activities: 14
+  currency: EUR
+reykjavik:
+  food: 55
+  local_transport: 10
+  activities: 18
+  currency: EUR
+riga:
+  food: 20
+  local_transport: 4
+  activities: 8
+  currency: EUR
+tallinn:
+  food: 20
+  local_transport: 4
+  activities: 8
+  currency: EUR
+vilnius:
+  food: 18
+  local_transport: 4
+  activities: 7
+  currency: EUR
+bucharest:
+  food: 18
+  local_transport: 3
+  activities: 7
+  currency: EUR
+sofia:
+  food: 15
+  local_transport: 3
+  activities: 6
+  currency: EUR
+belgrade:
+  food: 16
+  local_transport: 3
+  activities: 6
+  currency: EUR
+zagreb:
+  food: 24
+  local_transport: 5
+  activities: 9
+  currency: EUR
+split:
+  food: 26
+  local_transport: 5
+  activities: 10
+  currency: EUR
+dubrovnik:
+  food: 30
+  local_transport: 5
+  activities: 12
+  currency: EUR
+tirana:
+  food: 14
+  local_transport: 3
+  activities: 6
+  currency: EUR
+skopje:
+  food: 14
+  local_transport: 3
+  activities: 6
+  currency: EUR

@@ -1,0 +1,71 @@
+# Region presets: a travel-convenience grouping of cities.yaml entries,
+# not a strict geographic definition -- edit freely.
+western_europe:
+  name: Western Europe
+  cities:
+  - paris
+  - amsterdam
+  - brussels
+  - dublin
+  - luxembourg_city
+  - zurich
+  - geneva
+southern_europe:
+  name: Southern Europe
+  cities:
+  - barcelona
+  - madrid
+  - valencia
+  - seville
+  - malaga
+  - palma_de_mallorca
+  - lisbon
+  - porto
+  - faro
+  - rome
+  - milan
+  - venice
+  - florence
+  - naples
+  - bologna
+  - athens
+  - thessaloniki
+  - valletta
+central_europe:
+  name: Central Europe
+  cities:
+  - berlin
+  - munich
+  - hamburg
+  - frankfurt
+  - cologne
+  - vienna
+  - salzburg
+  - warsaw
+  - krakow
+  - prague
+  - budapest
+  - bratislava
+  - ljubljana
+northern_europe:
+  name: Northern Europe
+  cities:
+  - copenhagen
+  - stockholm
+  - oslo
+  - helsinki
+  - reykjavik
+  - riga
+  - tallinn
+  - vilnius
+balkans:
+  name: Balkans
+  cities:
+  - bucharest
+  - sofia
+  - belgrade
+  - zagreb
+  - split
+  - dubrovnik
+  - tirana
+  - skopje

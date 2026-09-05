@@ -1,0 +1,440 @@
+# City catalogue: id -> name, country, candidate airports (IATA), and
+# approximate city-centre coordinates (used for the max-distance-from-
+# centre stay filter). Hand-maintained -- add a city by adding an entry
+# here and (optionally) to a region in regions.yaml and to spend.yaml.
+paris:
+  name: Paris
+  country: France
+  iata:
+  - CDG
+  - ORY
+  centre_lat: 48.8566
+  centre_lon: 2.3522
+  currency: EUR
+amsterdam:
+  name: Amsterdam
+  country: Netherlands
+  iata:
+  - AMS
+  centre_lat: 52.3676
+  centre_lon: 4.9041
+  currency: EUR
+brussels:
+  name: Brussels
+  country: Belgium
+  iata:
+  - BRU
+  centre_lat: 50.8503
+  centre_lon: 4.3517
+  currency: EUR
+dublin:
+  name: Dublin
+  country: Ireland
+  iata:
+  - DUB
+  centre_lat: 53.3498
+  centre_lon: -6.2603
+  currency: EUR
+luxembourg_city:
+  name: Luxembourg City
+  country: Luxembourg
+  iata:
+  - LUX
+  centre_lat: 49.6116
+  centre_lon: 6.1319
+  currency: EUR
+zurich:
+  name: Zurich
+  country: Switzerland
+  iata:
+  - ZRH
+  centre_lat: 47.3769
+  centre_lon: 8.5417
+  currency: CHF
+geneva:
+  name: Geneva
+  country: Switzerland
+  iata:
+  - GVA
+  centre_lat: 46.2044
+  centre_lon: 6.1432
+  currency: CHF
+barcelona:
+  name: Barcelona
+  country: Spain
+  iata:
+  - BCN
+  centre_lat: 41.3851
+  centre_lon: 2.1734
+  currency: EUR
+madrid:
+  name: Madrid
+  country: Spain
+  iata:
+  - MAD
+  centre_lat: 40.4168
+  centre_lon: -3.7038
+  currency: EUR
+valencia:
+  name: Valencia
+  country: Spain
+  iata:
+  - VLC
+  centre_lat: 39.4699
+  centre_lon: -0.3763
+  currency: EUR
+seville:
+  name: Seville
+  country: Spain
+  iata:
+  - SVQ
+  centre_lat: 37.3891
+  centre_lon: -5.9845
+  currency: EUR
+malaga:
+  name: Malaga
+  country: Spain
+  iata:
+  - AGP
+  centre_lat: 36.7213
+  centre_lon: -4.4214
+  currency: EUR
+palma_de_mallorca:
+  name: Palma de Mallorca
+  country: Spain
+  iata:
+  - PMI
+  centre_lat: 39.5696
+  centre_lon: 2.6502
+  currency: EUR
+lisbon:
+  name: Lisbon
+  country: Portugal
+  iata:
+  - LIS
+  centre_lat: 38.7223
+  centre_lon: -9.1393
+  currency: EUR
+porto:
+  name: Porto
+  country: Portugal
+  iata:
+  - OPO
+  centre_lat: 41.1579
+  centre_lon: -8.6291
+  currency: EUR
+faro:
+  name: Faro
+  country: Portugal
+  iata:
+  - FAO
+  centre_lat: 37.0194
+  centre_lon: -7.9304
+  currency: EUR
+rome:
+  name: Rome
+  country: Italy
+  iata:
+  - FCO
+  - CIA
+  centre_lat: 41.9028
+  centre_lon: 12.4964
+  currency: EUR
+milan:
+  name: Milan
+  country: Italy
+  iata:
+  - MXP
+  - LIN
+  - BGY
+  centre_lat: 45.4642
+  centre_lon: 9.19
+  currency: EUR
+venice:
+  name: Venice
+  country: Italy
+  iata:
+  - VCE
+  centre_lat: 45.4408
+  centre_lon: 12.3155
+  currency: EUR
+florence:
+  name: Florence
+  country: Italy
+  iata:
+  - FLR
+  centre_lat: 43.7696
+  centre_lon: 11.2558
+  currency: EUR
+naples:
+  name: Naples
+  country: Italy
+  iata:
+  - NAP
+  centre_lat: 40.8518
+  centre_lon: 14.2681
+  currency: EUR
+bologna:
+  name: Bologna
+  country: Italy
+  iata:
+  - BLQ
+  centre_lat: 44.4949
+  centre_lon: 11.3426
+  currency: EUR
+athens:
+  name: Athens
+  country: Greece
+  iata:
+  - ATH
+  centre_lat: 37.9838
+  centre_lon: 23.7275
+  currency: EUR
+thessaloniki:
+  name: Thessaloniki
+  country: Greece
+  iata:
+  - SKG
+  centre_lat: 40.6401
+  centre_lon: 22.9444
+  currency: EUR
+valletta:
+  name: Valletta
+  country: Malta
+  iata:
+  - MLA
+  centre_lat: 35.8989
+  centre_lon: 14.5146
+  currency: EUR
+berlin:
+  name: Berlin
+  country: Germany
+  iata:
+  - BER
+  centre_lat: 52.52
+  centre_lon: 13.405
+  currency: EUR
+munich:
+  name: Munich
+  country: Germany
+  iata:
+  - MUC
+  centre_lat: 48.1351
+  centre_lon: 11.582
+  currency: EUR
+hamburg:
+  name: Hamburg
+  country: Germany
+  iata:
+  - HAM
+  centre_lat: 53.5511
+  centre_lon: 9.9937
+  currency: EUR
+frankfurt:
+  name: Frankfurt
+  country: Germany
+  iata:
+  - FRA
+  centre_lat: 50.1109
+  centre_lon: 8.6821
+  currency: EUR
+cologne:
+  name: Cologne
+  country: Germany
+  iata:
+  - CGN
+  centre_lat: 50.9375
+  centre_lon: 6.9603
+  currency: EUR
+vienna:
+  name: Vienna
+  country: Austria
+  iata:
+  - VIE
+  centre_lat: 48.2082
+  centre_lon: 16.3738
+  currency: EUR
+salzburg:
+  name: Salzburg
+  country: Austria
+  iata:
+  - SZG
+  centre_lat: 47.8095
+  centre_lon: 13.055
+  currency: EUR
+warsaw:
+  name: Warsaw
+  country: Poland
+  iata:
+  - WAW
+  centre_lat: 52.2297
+  centre_lon: 21.0122
+  currency: PLN
+krakow:
+  name: Krakow
+  country: Poland
+  iata:
+  - KRK
+  centre_lat: 50.0647
+  centre_lon: 19.945
+  currency: PLN
+prague:
+  name: Prague
+  country: Czechia
+  iata:
+  - PRG
+  centre_lat: 50.0755
+  centre_lon: 14.4378
+  currency: CZK
+budapest:
+  name: Budapest
+  country: Hungary
+  iata:
+  - BUD
+  centre_lat: 47.4979
+  centre_lon: 19.0402
+  currency: HUF
+bratislava:
+  name: Bratislava
+  country: Slovakia
+  iata:
+  - BTS
+  centre_lat: 48.1486
+  centre_lon: 17.1077
+  currency: EUR
+ljubljana:
+  name: Ljubljana
+  country: Slovenia
+  iata:
+  - LJU
+  centre_lat: 46.0569
+  centre_lon: 14.5058
+  currency: EUR
+copenhagen:
+  name: Copenhagen
+  country: Denmark
+  iata:
+  - CPH
+  centre_lat: 55.6761
+  centre_lon: 12.5683
+  currency: DKK
+stockholm:
+  name: Stockholm
+  country: Sweden
+  iata:
+  - ARN
+  centre_lat: 59.3293
+  centre_lon: 18.0686
+  currency: SEK
+oslo:
+  name: Oslo
+  country: Norway
+  iata:
+  - OSL
+  centre_lat: 59.9139
+  centre_lon: 10.7522
+  currency: NOK
+helsinki:
+  name: Helsinki
+  country: Finland
+  iata:
+  - HEL
+  centre_lat: 60.1699
+  centre_lon: 24.9384
+  currency: EUR
+reykjavik:
+  name: Reykjavik
+  country: Iceland
+  iata:
+  - KEF
+  centre_lat: 64.1466
+  centre_lon: -21.9426
+  currency: ISK
+riga:
+  name: Riga
+  country: Latvia
+  iata:
+  - RIX
+  centre_lat: 56.9496
+  centre_lon: 24.1052
+  currency: EUR
+tallinn:
+  name: Tallinn
+  country: Estonia
+  iata:
+  - TLL
+  centre_lat: 59.437
+  centre_lon: 24.7536
+  currency: EUR
+vilnius:
+  name: Vilnius
+  country: Lithuania
+  iata:
+  - VNO
+  centre_lat: 54.6872
+  centre_lon: 25.2797
+  currency: EUR
+bucharest:
+  name: Bucharest
+  country: Romania
+  iata:
+  - OTP
+  centre_lat: 44.4268
+  centre_lon: 26.1025
+  currency: RON
+sofia:
+  name: Sofia
+  country: Bulgaria
+  iata:
+  - SOF
+  centre_lat: 42.6977
+  centre_lon: 23.3219
+  currency: BGN
+belgrade:
+  name: Belgrade
+  country: Serbia
+  iata:
+  - BEG
+  centre_lat: 44.7866
+  centre_lon: 20.4489
+  currency: RSD
+zagreb:
+  name: Zagreb
+  country: Croatia
+  iata:
+  - ZAG
+  centre_lat: 45.815
+  centre_lon: 15.9819
+  currency: EUR
+split:
+  name: Split
+  country: Croatia
+  iata:
+  - SPU
+  centre_lat: 43.5081
+  centre_lon: 16.4402
+  currency: EUR
+dubrovnik:
+  name: Dubrovnik
+  country: Croatia
+  iata:
+  - DBV
+  centre_lat: 42.6507
+  centre_lon: 18.0944
+  currency: EUR
+tirana:
+  name: Tirana
+  country: Albania
+  iata:
+  - TIA
+  centre_lat: 41.3275
+  centre_lon: 19.8187
+  currency: ALL
+skopje:
+  name: Skopje
+  country: North Macedonia
+  iata:
+  - SKP
+  centre_lat: 41.9973
+  centre_lon: 21.428
+  currency: MKD
