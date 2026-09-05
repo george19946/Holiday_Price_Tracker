@@ -330,6 +330,7 @@ class Package(BaseModel):
     accommodation_cost: Money
     spend_cost: Money
     total_cost: Money
+    flight_deep_link: str | None = None
     stay: StayQuote | None = None
     fits_budget: bool = False
     over_budget_by: Money | None = None

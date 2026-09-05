@@ -12,12 +12,19 @@ from __future__ import annotations
 
 import calendar as _calendar
 import hashlib
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from holiday_tracker.models import Money, StayQuote
-from holiday_tracker.providers.base import FareCalendar
+from holiday_tracker.providers.base import CalendarFare
 
 _FIXED_OBSERVED_AT = datetime(2026, 1, 1, tzinfo=UTC)
+
+# A fixed anchor, not "today" -- fixtures must return the same thing forever
+# regardless of when the test suite runs. Mirrors fare_calendar's real-world
+# shape (see providers/base.py): a rolling window of already-priced
+# round-trip fares, not a clean per-day grid.
+_CALENDAR_ANCHOR = date(2027, 1, 1)
+_CALENDAR_WINDOW_DAYS = 365
 
 # A small rotation of property types so fixture stay results exercise every
 # stay filter (exclude_hostels, min_rating, max_centre_km,
@@ -35,39 +42,63 @@ def _stable_int(*parts: str, modulo: int) -> int:
 
 
 class FixturesFlightProvider:
-    """Synthesises a plausible cheapest-fare-per-day calendar.
+    """Synthesises the same *shape* of data the real Travelpayouts adapter
+    was confirmed (against a live token) to actually return: a sparse set
+    of already-priced round-trip fares scattered across a rolling window
+    for fare_calendar(), and a single cheapest fare for a requested month
+    from cheapest_fare_in_month() -- not a clean per-day price grid. See
+    providers/base.py and providers/travelpayouts.py for why.
 
-    The base fare for a route is derived from a hash of (origin,
-    destination) so different routes get different but stable prices; a
-    per-day wobble derived from a hash of the date adds the kind of
-    day-to-day variation a real fare calendar shows.
+    Everything is derived from a stable hash of the inputs, never
+    `random`, so the same query always returns exactly the same result.
     """
 
-    def __init__(self, base_price_range: tuple[int, int] = (40, 220)) -> None:
+    def __init__(
+        self, base_price_range: tuple[int, int] = (40, 220), fare_count: int = 45
+    ) -> None:
         self._base_min, self._base_max = base_price_range
+        self._fare_count = fare_count
 
     def _base_price(self, origin: str, destination_iata: str) -> int:
         return self._base_min + _stable_int(
             origin, destination_iata, modulo=self._base_max - self._base_min
         )
 
-    def fare_calendar(
-        self, origin: str, destination_iata: str, year: int, month: int
-    ) -> FareCalendar:
+    def fare_calendar(self, origin: str, destination_iata: str) -> list[CalendarFare]:
         base = self._base_price(origin, destination_iata)
-        days_in_month = _calendar.monthrange(year, month)[1]
-        prices: dict[date, Money] = {}
-        for day in range(1, days_in_month + 1):
-            depart = date(year, month, day)
-            wobble = _stable_int(origin, destination_iata, depart.isoformat(), modulo=60)
-            prices[depart] = Money.from_major(base + wobble, "GBP")
+        fares: list[CalendarFare] = []
+        for i in range(self._fare_count):
+            key = (origin, destination_iata, str(i))
+            offset_days = _stable_int(*key, "offset", modulo=_CALENDAR_WINDOW_DAYS)
+            nights = 2 + _stable_int(*key, "nights", modulo=9)  # 2..10
+            depart = _CALENDAR_ANCHOR + timedelta(days=offset_days)
+            return_date = depart + timedelta(days=nights)
+            wobble = _stable_int(*key, "price", modulo=80)
+            fares.append(
+                CalendarFare(
+                    depart_date=depart,
+                    return_date=return_date,
+                    price=Money.from_major(base + wobble, "GBP"),
+                    observed_at=_FIXED_OBSERVED_AT,
+                    source="fixtures",
+                )
+            )
+        return fares
 
-        return FareCalendar(
-            origin=origin,
-            destination_iata=destination_iata,
-            year=year,
-            month=month,
-            prices=prices,
+    def cheapest_fare_in_month(
+        self, origin: str, destination_iata: str, year: int, month: int
+    ) -> CalendarFare | None:
+        base = self._base_price(origin, destination_iata)
+        key = (origin, destination_iata, str(year), str(month))
+        days_in_month = _calendar.monthrange(year, month)[1]
+        day_of_month = 1 + _stable_int(*key, "day", modulo=days_in_month)
+        nights = 2 + _stable_int(*key, "nights", modulo=9)
+        depart = date(year, month, day_of_month)
+        wobble = _stable_int(*key, "price", modulo=60)
+        return CalendarFare(
+            depart_date=depart,
+            return_date=depart + timedelta(days=nights),
+            price=Money.from_major(base + wobble, "GBP"),
             observed_at=_FIXED_OBSERVED_AT,
             source="fixtures",
         )

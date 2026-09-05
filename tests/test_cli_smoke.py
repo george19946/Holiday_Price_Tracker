@@ -71,6 +71,13 @@ def test_dates_debug_command_reports_no_matches() -> None:
 
 class TestSearchCommand:
     def _run(self, *extra_args: str):
+        # A wide window and nights range, no weekday restriction: real
+        # free-tier fare data is a sparse, opportunistic set (confirmed
+        # against a live Travelpayouts token -- see
+        # providers/travelpayouts.py), so a tightly constrained rule can
+        # legitimately match nothing. These CLI-level tests want a
+        # reliable "there are results" scenario; the sparse/narrow-rule
+        # behavior itself is covered in tests/test_search_engine.py.
         base = [
             "search",
             "--provider",
@@ -80,13 +87,9 @@ class TestSearchCommand:
             "--to",
             "barcelona",
             "--window",
-            "2027-03-01:2027-05-31",
-            "--depart-dow",
-            "thu",
-            "--return-dow",
-            "sun",
+            "2027-01-01:2027-12-31",
             "--nights",
-            "3",
+            "1-14",
             "--party",
             "2",
         ]
@@ -317,13 +320,18 @@ class TestWatchCommands:
 
 class TestWatchRunAlerts:
     def _add_fitting_watch(self, db_path: str, name: str = "alert-trip") -> str:
+        # Wide window/nights, no weekday restriction -- see
+        # TestSearchCommand._run for why: these tests need a reliable
+        # fits-budget result, and real (and fixture) free-tier fare data
+        # is too sparse for a tight weekday+exact-nights rule to reliably
+        # match anything.
         add_result = runner.invoke(
             app,
             [
                 "watch", "add", "--db-path", db_path, "--name", name,
                 "--from", "LHR", "--to", "barcelona",
-                "--window", "2027-03-01:2027-05-31", "--depart-dow", "thu", "--return-dow", "sun",
-                "--nights", "3", "--party", "2", "--budget", "2000",
+                "--window", "2027-01-01:2027-12-31",
+                "--nights", "1-14", "--party", "2", "--budget", "2000",
             ],
         )
         assert add_result.exit_code == 0, add_result.output

@@ -3,7 +3,11 @@
 These matter beyond "do they run": the whole test suite for the search
 engine (phase 3) depends on fixtures being genuinely deterministic and on
 producing enough variety (in price, property type, rating, distance,
-cancellation policy) to exercise every stay filter.
+cancellation policy) to exercise every stay filter -- and, for flights,
+on mirroring the *shape* a real free-tier provider was confirmed (against
+a live token) to actually return: a sparse set of already-priced
+round-trip fares, not a per-day price grid (see providers/base.py and
+providers/travelpayouts.py).
 """
 
 from __future__ import annotations
@@ -13,40 +17,67 @@ from datetime import date
 from holiday_tracker.providers.fixtures import FixturesFlightProvider, FixturesStayProvider
 
 
-class TestFixturesFlightProvider:
+class TestFixturesFlightProviderCalendar:
     def test_same_query_is_fully_deterministic(self):
         provider = FixturesFlightProvider()
-        first = provider.fare_calendar("LHR", "BCN", 2027, 3)
-        second = provider.fare_calendar("LHR", "BCN", 2027, 3)
-        assert first.prices == second.prices
+        first = provider.fare_calendar("LHR", "BCN")
+        second = provider.fare_calendar("LHR", "BCN")
+        assert first == second
 
-    def test_calendar_covers_every_day_of_the_month(self):
+    def test_returns_the_configured_number_of_fares(self):
+        provider = FixturesFlightProvider(fare_count=20)
+        fares = provider.fare_calendar("LHR", "BCN")
+        assert len(fares) == 20
+
+    def test_each_fare_is_a_concrete_already_priced_round_trip(self):
         provider = FixturesFlightProvider()
-        calendar = provider.fare_calendar("LHR", "BCN", 2027, 4)  # April has 30 days
-        assert len(calendar.prices) == 30
-        assert set(calendar.prices) == {date(2027, 4, d) for d in range(1, 31)}
+        for fare in provider.fare_calendar("LHR", "BCN"):
+            assert fare.return_date > fare.depart_date
+            nights = (fare.return_date - fare.depart_date).days
+            assert 2 <= nights <= 10
+            assert fare.price.currency == "GBP"
+            assert fare.source == "fixtures"
 
-    def test_different_routes_get_different_base_prices(self):
+    def test_different_routes_get_different_fares(self):
         provider = FixturesFlightProvider()
-        bcn = provider.fare_calendar("LHR", "BCN", 2027, 3)
-        osl = provider.fare_calendar("LHR", "OSL", 2027, 3)
-        assert bcn.prices != osl.prices
+        bcn = provider.fare_calendar("LHR", "BCN")
+        osl = provider.fare_calendar("LHR", "OSL")
+        assert bcn != osl
 
-    def test_prices_are_within_the_configured_range(self):
-        provider = FixturesFlightProvider(base_price_range=(50, 100))
-        calendar = provider.fare_calendar("LHR", "BCN", 2027, 3)
-        for price in calendar.prices.values():
-            # base in [50, 100) plus a wobble of up to 59
-            assert 50 <= price.amount <= 100 + 59
-
-    def test_source_and_currency(self):
+    def test_fares_are_spread_across_a_wide_window_not_one_month(self):
+        # Mirrors what live testing found: real cached fares span a rolling
+        # ~10-11 month window, not a single requested month.
         provider = FixturesFlightProvider()
-        calendar = provider.fare_calendar("LHR", "BCN", 2027, 3)
-        assert calendar.source == "fixtures"
-        assert calendar.origin == "LHR"
-        assert calendar.destination_iata == "BCN"
-        any_price = next(iter(calendar.prices.values()))
-        assert any_price.currency == "GBP"
+        fares = provider.fare_calendar("LHR", "BCN")
+        months = {(f.depart_date.year, f.depart_date.month) for f in fares}
+        assert len(months) > 3
+
+
+class TestFixturesFlightProviderMonthly:
+    def test_same_query_is_fully_deterministic(self):
+        provider = FixturesFlightProvider()
+        first = provider.cheapest_fare_in_month("LHR", "BCN", 2027, 3)
+        second = provider.cheapest_fare_in_month("LHR", "BCN", 2027, 3)
+        assert first == second
+
+    def test_fare_falls_within_the_requested_month(self):
+        provider = FixturesFlightProvider()
+        fare = provider.cheapest_fare_in_month("LHR", "BCN", 2027, 3)
+        assert fare is not None
+        assert fare.depart_date.year == 2027
+        assert fare.depart_date.month == 3
+
+    def test_different_months_can_produce_different_fares(self):
+        provider = FixturesFlightProvider()
+        march = provider.cheapest_fare_in_month("LHR", "BCN", 2027, 3)
+        april = provider.cheapest_fare_in_month("LHR", "BCN", 2027, 4)
+        assert (march.depart_date, march.price) != (april.depart_date, april.price)
+
+    def test_nights_are_within_documented_range(self):
+        provider = FixturesFlightProvider()
+        fare = provider.cheapest_fare_in_month("LHR", "BCN", 2027, 6)
+        nights = (fare.return_date - fare.depart_date).days
+        assert 2 <= nights <= 10
 
 
 class TestFixturesStayProvider:

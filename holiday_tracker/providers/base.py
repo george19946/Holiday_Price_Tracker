@@ -2,12 +2,21 @@
 fixtures` (tests, CI, demos) and the real Travelpayouts/Hotellook adapters
 are interchangeable.
 
-Keeping these narrow is what makes the two-stage funnel described in the
-project plan possible: FlightProvider is deliberately calendar-shaped (one
-call = a whole month of daily fares) because that's what keeps a wide
-regional sweep affordable on a free-tier rate limit, while StayProvider
-returns a small shortlist per call because stay pricing is only ever run
-against the narrowed-down candidates from stage 1.
+FlightProvider's shape reflects what live testing against a real
+Travelpayouts token (2026-09-05) actually confirmed the free API returns,
+not the "one clean grid of daily prices" the docs summary implied: a
+fare-calendar request hands back whichever concrete, already-priced
+round-trip fares the provider happens to have cached for a route (a
+sparse set spanning a rolling window, not a specific month), and a
+month-scoped lookup hands back at most the single cheapest fare found
+for that month. Neither gives "the price for this exact date I chose" --
+the engine (phase 3) has to check each real fare it gets back against the
+DateRule instead of generating dates and pricing them (see
+dates.matches_date_rule). See providers/travelpayouts.py's module
+docstring for the full evidence trail.
+
+StayProvider returns a small shortlist per call because stay pricing is
+only ever run against the narrowed-down candidates from stage 1.
 """
 
 from __future__ import annotations
@@ -20,32 +29,37 @@ from holiday_tracker.models import Money, StayQuote
 
 
 @dataclass(frozen=True)
-class FareCalendar:
-    """The result of one fare-calendar request: the cheapest fare found for
-    each day of a single month, for one origin/destination pair.
+class CalendarFare:
+    """One concrete, already-priced round-trip fare a provider has
+    cached: a specific depart/return date pair, not a price we get to
+    pair with a return date of our own choosing."""
 
-    Deliberately holds prices rather than full FlightQuote objects — a
-    calendar entry only pins down a *departure* day; which return day it was
-    priced against is a per-provider detail (see travelpayouts.py), and the
-    engine (phase 3) is the one that knows which return date a given
-    DateRule actually wants.
-    """
-
-    origin: str
-    destination_iata: str
-    year: int
-    month: int
-    prices: dict[date, Money]  # depart_date -> cheapest fare found
+    depart_date: date
+    return_date: date
+    price: Money
     observed_at: datetime
     source: str
+    deep_link: str | None = None
 
 
 class FlightProvider(Protocol):
-    """Fetches a month's worth of cheapest daily fares in one call."""
+    """Fetches whatever cached round-trip fares a provider currently has
+    for one route, plus a per-month cheapest-fare fallback."""
 
-    def fare_calendar(
+    def fare_calendar(self, origin: str, destination_iata: str) -> list[CalendarFare]:
+        """A route's full set of currently-cached fares, one call
+        regardless of dates -- cheap, but sparse and not month-scoped."""
+        ...
+
+    def cheapest_fare_in_month(
         self, origin: str, destination_iata: str, year: int, month: int
-    ) -> FareCalendar: ...
+    ) -> CalendarFare | None:
+        """The single cheapest fare found for departures around that
+        month, or None if the provider has nothing to offer -- a
+        genuinely month-scoped signal that catches a fare the sparse
+        fare_calendar() sweep missed, at the cost of one request per
+        month actually checked."""
+        ...
 
 
 class StayProvider(Protocol):

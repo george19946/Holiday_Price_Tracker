@@ -97,6 +97,7 @@ def build_package(
     flight_price_per_person: Money,
     stay: StayQuote | None,
     daily_spend: DailySpend,
+    flight_deep_link: str | None = None,
 ) -> Package:
     """Assemble one fully priced Package from its raw components, and
     determine whether it fits the search spec's budget."""
@@ -129,6 +130,7 @@ def build_package(
         accommodation_cost=accommodation_cost,
         spend_cost=spend_cost,
         total_cost=total_cost,
+        flight_deep_link=flight_deep_link,
         stay=stay,
         fits_budget=fits,
         over_budget_by=over_budget_by,
