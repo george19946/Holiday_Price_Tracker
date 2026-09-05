@@ -1,33 +1,52 @@
-"""Adapter for the Hotellook (Travelpayouts) cached hotel-price API.
+"""Adapter for the Hotellook (Travelpayouts) cached hotel-price API --
+plus the catalog-estimate fallback this module now needs because that API
+no longer exists.
 
-Free, token-gated sign-up — same Travelpayouts account as flights. Two
-endpoints combine to produce a filterable StayQuote:
+CONFIRMED DEAD (2026-09-05): Hotellook -- the consumer brand, its
+affiliate program, and every endpoint under engine.hotellook.com --
+shut down permanently on 2025-10-15. Every path on that host, including
+the bare root, now returns a CloudFront-fronted 404 with no real origin
+behind it; Travelpayouts' own closure FAQ states plainly that "no other
+hotel brand offers API to Travelpayouts partners" as a replacement. This
+was verified live against a real token: requests to /api/v2/cache.json
+with several different `location` values all 404'd identically, and so
+did the bare domain root -- ruling out a parameter mistake. The other
+hotel APIs surveyed (RateHawk, Booking.com) require manual partner
+approval with no self-serve token, and Booking.com's terms additionally
+prohibit AI-system use without their prior written approval. There is
+currently no free, self-serve, live hotel-price API to integrate.
+
+So `search()` still tries the real endpoints first (in case Travelpayouts
+ever brings hotel data back, or a token gets access to something this
+environment couldn't reach), but on failure falls back to a single
+estimated StayQuote from the bundled catalog (catalog/nightly_rate.yaml,
+in the same spirit as catalog/spend.yaml's daily-spend estimates).
+Only the *price* in that fallback is a genuine, if rough, estimate --
+property type, rating, distance, and cancellation policy are all unknown,
+so they're left unset rather than guessed. A stay filter that depends on
+one of those (min rating, max distance, free cancellation) correctly
+rejects the estimate instead of silently passing it (see
+engine/filters.py's binding_filter) -- meaning a filtered real search can
+legitimately show fewer results, or none, while this outage lasts. That's
+the honest behaviour, not a bug.
+
+The original design (still exercised whenever the live endpoints work)
+combines two endpoints:
   - `/api/v2/cache.json` — cached nightly prices for hotels in a location.
   - `/api/v2/static/hotels.json` — per-hotel metadata (coordinates,
     property "kind") needed for the "no hostels" and "max distance from
     centre" stay filters, since the price endpoint alone doesn't carry it.
+That part was written against Travelpayouts' published documentation but
+was never exercised against a live response before the service turned out
+to be gone -- so the field names and the `location` parameter's expected
+format (documented as a numeric location id, not a city slug) remain
+unconfirmed. If Hotellook-equivalent data ever becomes available again
+under this shape, only this file and its tests should need to change.
 
-Rate limit: 60 requests/minute (see providers/http.py's TokenBucket) —
+Rate limit: 60 requests/minute (see providers/http.py's TokenBucket) --
 noticeably tighter than flights, which is exactly why the search engine
 (phase 3) only prices stays for its narrowed-down shortlist of candidates
 rather than for every flight-sweep result.
-
-VERIFICATION NOTE: written against Travelpayouts' published documentation
-(https://support.travelpayouts.com/hc/en-us/articles/115000343268-Hotels-data-API,
-https://support.travelpayouts.com/hc/en-us/articles/203956133-Hotel-search-API)
-but not exercised against a live token in this environment. Two things in
-particular need confirming with a real token before this is trusted:
-  1. The `location` parameter Hotellook's cache.json expects is its own
-     numeric location id, not an arbitrary city name/slug -- catalog city
-     ids (e.g. "barcelona") are passed straight through below as a
-     starting point, and will need a real id mapping (bundled alongside
-     cities.yaml, the same way IATA codes already are) once verified.
-  2. The exact field names on each cache.json entry (`priceFrom`,
-     `hotelId`, `stars`) and each static hotels.json entry (`id`, `kind`,
-     `location.geo`) are the ones the docs describe, not yet confirmed
-     against a live response.
-If the real shape differs, only this file and its tests need to change —
-the StayProvider protocol and everything downstream is unaffected.
 """
 
 from __future__ import annotations
@@ -35,9 +54,9 @@ from __future__ import annotations
 import math
 from datetime import UTC, date, datetime
 
-from holiday_tracker.catalog.loader import load_cities
-from holiday_tracker.models import Money, StayQuote
-from holiday_tracker.providers.http import CachedHttpClient
+from holiday_tracker.catalog.loader import load_cities, load_nightly_rates
+from holiday_tracker.models import Money, SpendStyle, StayQuote
+from holiday_tracker.providers.http import CachedHttpClient, ProviderError
 
 CACHE_URL = "https://engine.hotellook.com/api/v2/cache.json"
 STATIC_HOTELS_URL = "https://engine.hotellook.com/api/v2/static/hotels.json"
@@ -62,8 +81,9 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 class HotellookStayProvider:
-    """StayProvider backed by Hotellook's cached price search, enriched with
-    static per-hotel metadata (coordinates, property type) for filtering."""
+    """StayProvider backed by Hotellook's cached price search when
+    reachable, falling back to a catalog nightly-rate estimate when it
+    isn't -- see this module's docstring for why that's currently always."""
 
     def __init__(self, http_client: CachedHttpClient, token: str, currency: str = "gbp") -> None:
         self._http = http_client
@@ -86,13 +106,9 @@ class HotellookStayProvider:
                 metadata[hotel_id] = hotel
         return metadata
 
-    def search(
-        self, city_id: str, check_in: date, check_out: date, adults: int, limit: int = 20
+    def _live_search(
+        self, city_id: str, check_in: date, check_out: date, adults: int, nights: int, limit: int
     ) -> list[StayQuote]:
-        nights = (check_out - check_in).days
-        if nights <= 0:
-            return []
-
         payload = self._http.get_json(
             CACHE_URL,
             params={
@@ -156,3 +172,41 @@ class HotellookStayProvider:
 
         quotes.sort(key=lambda q: q.nightly_rate.minor_units)
         return quotes
+
+    def _estimate(self, city_id: str, check_in: date, check_out: date) -> StayQuote | None:
+        """Fallback used when live hotel pricing fails. Only the price is
+        a genuine (if rough) estimate; property type, rating, distance,
+        and cancellation policy are all unknown and left unset, so a
+        stay filter that depends on one of them correctly rejects this
+        estimate (see engine/filters.py) rather than silently passing it.
+        """
+        rate = load_nightly_rates().get(city_id)
+        if rate is None:
+            return None
+        return StayQuote(
+            city_id=city_id,
+            check_in=check_in,
+            check_out=check_out,
+            nightly_rate=Money.from_major(rate.for_style(SpendStyle.normal), rate.currency),
+            property_type="hotel",
+            rating=None,
+            distance_km=None,
+            free_cancellation=False,
+            observed_at=datetime.now(UTC),
+            source="catalog_estimate",
+            deep_link=None,
+            confidence="city_median_estimate",
+        )
+
+    def search(
+        self, city_id: str, check_in: date, check_out: date, adults: int, limit: int = 20
+    ) -> list[StayQuote]:
+        nights = (check_out - check_in).days
+        if nights <= 0:
+            return []
+
+        try:
+            return self._live_search(city_id, check_in, check_out, adults, nights, limit)
+        except ProviderError:
+            estimate = self._estimate(city_id, check_in, check_out)
+            return [estimate] if estimate is not None else []

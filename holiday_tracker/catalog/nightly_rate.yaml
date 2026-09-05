@@ -1,0 +1,171 @@
+# Estimated nightly rate for a standard double room, "normal" style
+# tier, in EUR. Hand-maintained, order-of-magnitude figures -- NOT a
+# live feed. Used only as a fallback when live hotel pricing is
+# unavailable (see providers/hotellook.py: Hotellook, the free hotel-
+# price source this project was built against, shut down permanently
+# in October 2025, and no free replacement currently exists).
+# thrifty/comfortable scale this by the same multipliers as daily
+# spend (SPEND_STYLE_MULTIPLIERS in models.py). Correct a figure here
+# if you know better for a given city.
+paris:
+  normal: 140
+  currency: EUR
+amsterdam:
+  normal: 130
+  currency: EUR
+brussels:
+  normal: 110
+  currency: EUR
+dublin:
+  normal: 130
+  currency: EUR
+luxembourg_city:
+  normal: 140
+  currency: EUR
+zurich:
+  normal: 180
+  currency: EUR
+geneva:
+  normal: 180
+  currency: EUR
+barcelona:
+  normal: 100
+  currency: EUR
+madrid:
+  normal: 95
+  currency: EUR
+valencia:
+  normal: 75
+  currency: EUR
+seville:
+  normal: 75
+  currency: EUR
+malaga:
+  normal: 80
+  currency: EUR
+palma_de_mallorca:
+  normal: 100
+  currency: EUR
+lisbon:
+  normal: 85
+  currency: EUR
+porto:
+  normal: 75
+  currency: EUR
+faro:
+  normal: 80
+  currency: EUR
+rome:
+  normal: 110
+  currency: EUR
+milan:
+  normal: 120
+  currency: EUR
+venice:
+  normal: 140
+  currency: EUR
+florence:
+  normal: 110
+  currency: EUR
+naples:
+  normal: 80
+  currency: EUR
+bologna:
+  normal: 95
+  currency: EUR
+athens:
+  normal: 75
+  currency: EUR
+thessaloniki:
+  normal: 60
+  currency: EUR
+valletta:
+  normal: 90
+  currency: EUR
+berlin:
+  normal: 100
+  currency: EUR
+munich:
+  normal: 120
+  currency: EUR
+hamburg:
+  normal: 105
+  currency: EUR
+frankfurt:
+  normal: 110
+  currency: EUR
+cologne:
+  normal: 100
+  currency: EUR
+vienna:
+  normal: 105
+  currency: EUR
+salzburg:
+  normal: 100
+  currency: EUR
+warsaw:
+  normal: 65
+  currency: EUR
+krakow:
+  normal: 60
+  currency: EUR
+prague:
+  normal: 70
+  currency: EUR
+budapest:
+  normal: 65
+  currency: EUR
+bratislava:
+  normal: 65
+  currency: EUR
+ljubljana:
+  normal: 75
+  currency: EUR
+copenhagen:
+  normal: 140
+  currency: EUR
+stockholm:
+  normal: 130
+  currency: EUR
+oslo:
+  normal: 145
+  currency: EUR
+helsinki:
+  normal: 120
+  currency: EUR
+reykjavik:
+  normal: 160
+  currency: EUR
+riga:
+  normal: 60
+  currency: EUR
+tallinn:
+  normal: 60
+  currency: EUR
+vilnius:
+  normal: 55
+  currency: EUR
+bucharest:
+  normal: 55
+  currency: EUR
+sofia:
+  normal: 45
+  currency: EUR
+belgrade:
+  normal: 50
+  currency: EUR
+zagreb:
+  normal: 70
+  currency: EUR
+split:
+  normal: 80
+  currency: EUR
+dubrovnik:
+  normal: 100
+  currency: EUR
+tirana:
+  normal: 45
+  currency: EUR
+skopje:
+  normal: 45
+  currency: EUR

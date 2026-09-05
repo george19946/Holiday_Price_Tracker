@@ -22,7 +22,11 @@ from holiday_tracker.providers.http import CachedHttpClient, ResponseCache
 
 def _provider(handler, currency: str = "gbp") -> HotellookStayProvider:
     transport = httpx.MockTransport(handler)
-    http_client = CachedHttpClient(cache=ResponseCache(":memory:"), client=httpx.Client(transport=transport))
+    http_client = CachedHttpClient(
+        cache=ResponseCache(":memory:"),
+        client=httpx.Client(transport=transport),
+        sleep=lambda _seconds: None,  # skip real retry backoff in tests
+    )
     return HotellookStayProvider(http_client, token="test-token", currency=currency)
 
 
@@ -135,3 +139,82 @@ def test_haversine_known_distance_barcelona_to_madrid():
 def test_endpoints_are_the_documented_urls():
     assert CACHE_URL == "https://engine.hotellook.com/api/v2/cache.json"
     assert STATIC_HOTELS_URL == "https://engine.hotellook.com/api/v2/static/hotels.json"
+
+
+class TestCatalogFallback:
+    """Hotellook is confirmed permanently dead (shut down 2025-10-15,
+    see this module's docstring) -- every live request currently fails,
+    so search() must fall back to a catalog estimate rather than raise.
+    """
+
+    def test_falls_back_to_catalog_estimate_on_404(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, text="<html>404 Not Found</html>")
+
+        provider = _provider(handler)
+        results = provider.search("barcelona", date(2027, 3, 4), date(2027, 3, 7), adults=2)
+
+        assert len(results) == 1
+        estimate = results[0]
+        assert estimate.confidence == "city_median_estimate"
+        assert estimate.source == "catalog_estimate"
+        assert estimate.nightly_rate.amount > 0
+        assert estimate.deep_link is None
+
+    def test_estimate_leaves_unknown_attributes_unset_rather_than_guessed(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, text="not found")
+
+        provider = _provider(handler)
+        estimate = provider.search("barcelona", date(2027, 3, 4), date(2027, 3, 7), adults=2)[0]
+        assert estimate.rating is None
+        assert estimate.distance_km is None
+        assert estimate.free_cancellation is False
+
+    def test_estimate_rating_and_distance_correctly_fail_stay_filters(self):
+        from holiday_tracker.engine.filters import passes_filters
+        from holiday_tracker.models import StayFilters
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, text="not found")
+
+        provider = _provider(handler)
+        estimate = provider.search("barcelona", date(2027, 3, 4), date(2027, 3, 7), adults=2)[0]
+
+        # An unverified estimate must not silently satisfy a filter that
+        # depends on data it doesn't actually have.
+        assert not passes_filters(estimate, StayFilters(min_rating=5.0))
+        assert not passes_filters(estimate, StayFilters(max_centre_km=10.0))
+        assert not passes_filters(estimate, StayFilters(free_cancellation_only=True))
+        # A filter that only needs the property type (which the estimate
+        # does set to "hotel") still passes.
+        assert passes_filters(estimate, StayFilters(exclude_hostels=True))
+
+    def test_falls_back_on_5xx_after_retries_too(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, text="server error")
+
+        provider = _provider(handler)
+        results = provider.search("barcelona", date(2027, 3, 4), date(2027, 3, 7), adults=2)
+        assert len(results) == 1
+        assert results[0].confidence == "city_median_estimate"
+
+    def test_unknown_city_returns_no_estimate(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, text="not found")
+
+        provider = _provider(handler)
+        results = provider.search("nowhereville", date(2027, 3, 4), date(2027, 3, 7), adults=2)
+        assert results == []
+
+    def test_successful_live_response_does_not_use_the_fallback(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/v2/cache.json":
+                return httpx.Response(200, json=[{"hotelId": 1, "priceFrom": 90}])
+            return httpx.Response(200, json=[])
+
+        provider = _provider(handler)
+        results = provider.search("barcelona", date(2027, 3, 4), date(2027, 3, 7), adults=2)
+        assert len(results) == 1
+        assert results[0].confidence == "observed"
+        assert results[0].source == "hotellook"

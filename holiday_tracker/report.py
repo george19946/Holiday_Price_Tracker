@@ -32,10 +32,21 @@ def _stay_line(package: Package) -> str | None:
     stay = package.stay
     if stay is None:
         return None
-    return (
-        f"{stay.property_type}, rating {stay.rating}, {stay.distance_km} km from centre "
-        f"(observed {stay.observed_at:%Y-%m-%d}, source: {stay.source} -- {_VERIFY_NOTE})"
+
+    rating = f"rating {stay.rating}" if stay.rating is not None else "rating unknown"
+    distance = (
+        f"{stay.distance_km} km from centre" if stay.distance_km is not None else "distance unknown"
     )
+
+    if stay.confidence == "city_median_estimate":
+        provenance = (
+            f"estimated from bundled catalog data as of {stay.observed_at:%Y-%m-%d} "
+            "-- no live hotel price source is currently available, this is not an observed listing"
+        )
+    else:
+        provenance = f"observed {stay.observed_at:%Y-%m-%d}, source: {stay.source} -- {_VERIFY_NOTE}"
+
+    return f"{stay.property_type}, {rating}, {distance} ({provenance})"
 
 
 def _package_table(packages: list[Package], title: str) -> Table:

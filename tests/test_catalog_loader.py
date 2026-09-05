@@ -10,6 +10,7 @@ import pytest
 
 from holiday_tracker.catalog.loader import (
     load_cities,
+    load_nightly_rates,
     load_regions,
     load_spend,
     resolve_destination,
@@ -82,3 +83,25 @@ class TestResolveDestination:
     def test_unknown_destination_raises(self):
         with pytest.raises(ValueError, match="unknown destination"):
             resolve_destination("Atlantis")
+
+
+class TestLoadNightlyRates:
+    def test_every_city_has_a_nightly_rate_entry(self):
+        cities = load_cities()
+        rates = load_nightly_rates()
+        missing = set(cities) - set(rates)
+        assert not missing, f"cities missing a nightly_rate.yaml entry: {missing}"
+
+    def test_for_style_applies_the_shared_multipliers(self):
+        rates = load_nightly_rates()
+        barcelona = rates["barcelona"]
+        normal = barcelona.for_style(SpendStyle.normal)
+        thrifty = barcelona.for_style(SpendStyle.thrifty)
+        comfortable = barcelona.for_style(SpendStyle.comfortable)
+        assert thrifty < normal < comfortable
+        assert normal == pytest.approx(barcelona.normal)
+
+    def test_rates_are_positive_and_have_a_currency(self):
+        for rate in load_nightly_rates().values():
+            assert rate.normal > 0
+            assert rate.currency

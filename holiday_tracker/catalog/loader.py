@@ -56,6 +56,20 @@ class DailySpend:
         return self.daily_total * SPEND_STYLE_MULTIPLIERS[style]
 
 
+@dataclass(frozen=True)
+class NightlyRateEstimate:
+    """Estimated nightly rate for a standard double room at the "normal"
+    style tier -- used only as a fallback when live hotel pricing is
+    unavailable (see providers/hotellook.py)."""
+
+    city_id: str
+    normal: float
+    currency: str
+
+    def for_style(self, style: SpendStyle) -> float:
+        return self.normal * SPEND_STYLE_MULTIPLIERS[style]
+
+
 def _read_yaml(filename: str) -> dict[str, Any]:
     text = resources.files(_PACKAGE).joinpath(filename).read_text(encoding="utf-8")
     return yaml.safe_load(text) or {}
@@ -108,6 +122,22 @@ def load_spend() -> dict[str, DailySpend]:
             currency=fields.get("currency", cities[city_id].currency),
         )
     return spend
+
+
+@functools.lru_cache(maxsize=1)
+def load_nightly_rates() -> dict[str, NightlyRateEstimate]:
+    raw = _read_yaml("nightly_rate.yaml")
+    cities = load_cities()
+    rates: dict[str, NightlyRateEstimate] = {}
+    for city_id, fields in raw.items():
+        if city_id not in cities:
+            raise ValueError(f"nightly_rate.yaml references unknown city {city_id!r}")
+        rates[city_id] = NightlyRateEstimate(
+            city_id=city_id,
+            normal=float(fields["normal"]),
+            currency=fields.get("currency", cities[city_id].currency),
+        )
+    return rates
 
 
 def resolve_destination(query: str) -> list[str]:

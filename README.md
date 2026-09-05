@@ -15,18 +15,30 @@ The all-in cost of a trip is:
 total = flights (party) + accommodation (party, room-split) + estimated daily spend (party)
 ```
 
-Flight and accommodation prices come from the free [Travelpayouts](https://www.travelpayouts.com/)
-data APIs (Aviasales flight-price calendars + Hotellook cached hotel prices). Because
-these are **cached, indicative prices** rather than live bookable fares, every result
-shown includes when the price was last observed and a reminder to verify before booking.
-Daily spend is estimated from a bundled, editable cost-of-living dataset
-(`holiday_tracker/catalog/spend.yaml`), scaled by a `thrifty` / `normal` / `comfortable`
-style multiplier.
+Flight prices come from the free [Travelpayouts](https://www.travelpayouts.com/) /
+Aviasales data API — verified live (2026-09-05): it hands back whichever real,
+already-priced round-trip fares Aviasales currently has cached for a route (a sparse,
+rolling set, not a per-day grid for a month you ask for) plus a genuinely month-scoped
+"cheapest fare this month" fallback. These are **cached, indicative prices**, not live
+bookable fares, so every result includes when the price was observed, its source, and —
+when the API provided one — a real booking link, with a reminder to verify before
+booking. A tightly constrained date rule (an exact weekday pair and an exact nights
+count) can legitimately match nothing, because the free data is genuinely that sparse —
+that's correct behaviour, not a bug.
+
+Accommodation is a different story: **Hotellook, the free hotel-price API this project
+was built against, shut down permanently in October 2025**, and no free replacement
+currently exists (see "Data sources and honest limitations" below). With a real token,
+the tool still returns a complete, honestly-labelled total — real flights plus an
+*estimated* nightly rate from a bundled per-city catalog — but the stay line is never a
+real observed listing right now. Daily spend is estimated the same way, from a bundled,
+editable cost-of-living dataset (`holiday_tracker/catalog/spend.yaml`), scaled by a
+`thrifty` / `normal` / `comfortable` style multiplier.
 
 The search runs in three stages to stay within free-tier rate limits: a wide, cheap
-sweep of flight prices across every candidate month (one calendar request covers a
-whole month of daily fares), a shortlist by flight price alone, and real hotel pricing
-for only that shortlist. See `holiday_tracker/engine/search.py` for the full pipeline.
+sweep of whatever fares a route's flight calendar currently has cached, a shortlist by
+flight price alone, and stay pricing (live where available, estimated otherwise) for
+only that shortlist. See `holiday_tracker/engine/search.py` for the full pipeline.
 
 ## Setup
 
@@ -149,16 +161,31 @@ To track more than one holiday, run the workflow manually again with different
 
 ## Data sources and honest limitations
 
-- **Prices are indicative, not bookable.** They come from Travelpayouts' cached fare
-  and hotel-price data, not a live booking API — there is currently no free live-price
-  API for independent developers (Amadeus's free self-service tier shut down in mid-2026).
-  Always verify before booking.
-- **The Travelpayouts adapters are written against published documentation**, not
-  verified against a live token in this environment — see the "VERIFICATION NOTE" in
-  `holiday_tracker/providers/travelpayouts.py` and `hotellook.py` for exactly what to
-  double-check with a real token before trusting them in production.
-- **Hotel coverage is uneven**, especially for smaller cities — a stay estimate may fall
-  back to a city-level median, and is labelled as such.
+- **Flight prices are indicative, not bookable**, and verified live (2026-09-05,
+  route LHR→BCN, see `holiday_tracker/providers/travelpayouts.py`'s module docstring
+  for the full evidence trail). They're Aviasales' cached fares, not a live GDS quote —
+  there is currently no free live flight-price API for independent developers (Amadeus's
+  free self-service tier shut down in mid-2026). A tightly constrained date rule (an
+  exact weekday pair and exact nights count) can legitimately return nothing at all,
+  because the free calendar data is a sparse, opportunistic set, not an exhaustive grid —
+  that's correct behaviour, not a bug. Always verify the booking link before paying.
+- **There is currently no free live hotel-price API at all.** Hotellook — the service
+  this project was originally built against — shut down permanently on 2025-10-15
+  (confirmed live: every path on its API domain 404s via a CloudFront edge with no
+  origin behind it, and Travelpayouts' own closure FAQ states no replacement hotel
+  brand currently offers partners an API). RateHawk and Booking.com both have hotel
+  APIs, but neither offers a self-serve token — both require manual partnership
+  approval, and Booking.com's terms additionally prohibit AI-system use without their
+  prior written approval. So a real (`--provider travelpayouts`) search still tries the
+  live endpoints first, but falls back to an estimated nightly rate from the bundled
+  catalog (`holiday_tracker/catalog/nightly_rate.yaml`) when they fail — which, right
+  now, is always. That estimate is clearly labelled (`confidence: city_median_estimate`,
+  "not an observed listing" in the report) and only prices, not property type, rating,
+  distance, or cancellation policy — a stay filter that depends on one of those (min
+  rating, max distance, free cancellation) correctly rejects the estimate rather than
+  guessing, so a filtered real search can show fewer results, or none, while this
+  outage lasts. See `holiday_tracker/providers/hotellook.py`'s module docstring for
+  the full evidence trail.
 - **Daily-spend figures are estimates** from a hand-maintained dataset
   (`holiday_tracker/catalog/spend.yaml`), not a live cost-of-living feed. Correct them
   there if you know better for a given city.
