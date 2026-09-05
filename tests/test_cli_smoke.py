@@ -27,7 +27,7 @@ def test_init_command_dispatches() -> None:
 def test_watch_subcommand_dispatches() -> None:
     result = runner.invoke(app, ["watch", "list"])
     assert result.exit_code == 0
-    assert "watch list" in result.output
+    assert "No watches yet" in result.output
 
 
 def test_dates_debug_command() -> None:
@@ -182,3 +182,134 @@ class TestSearchCommand:
             ],
         )
         assert result.exit_code == 0
+
+
+class TestWatchCommands:
+    def _spec_args(self, budget="2000"):
+        """Flags accepted by `watch add` (no --provider -- that's a `watch run` concern)."""
+        return [
+            "--from", "LHR", "--to", "barcelona",
+            "--window", "2027-03-01:2027-05-31", "--depart-dow", "thu", "--return-dow", "sun",
+            "--nights", "3", "--party", "2", "--budget", budget,
+        ]
+
+    def _search_args(self, budget="2000"):
+        return ["--provider", "fixtures", *self._spec_args(budget)]
+
+    def test_watch_add_with_flags_then_list_then_run_then_report(self, tmp_path):
+        db_path = str(tmp_path / "db.sqlite")
+        history_dir = str(tmp_path / "history")
+
+        add_result = runner.invoke(
+            app,
+            ["watch", "add", "--db-path", db_path, "--name", "my-trip", *self._spec_args()],
+        )
+        assert add_result.exit_code == 0, add_result.output
+        assert "Created watch" in add_result.output
+        watch_id = add_result.output.split("Created watch ")[1].split(" ")[0]
+
+        list_result = runner.invoke(app, ["watch", "list", "--db-path", db_path])
+        assert list_result.exit_code == 0
+        assert "my-trip" in list_result.output
+        assert "never" in list_result.output  # not run yet
+
+        run_result = runner.invoke(
+            app,
+            [
+                "watch", "run", watch_id, "--db-path", db_path,
+                "--provider", "fixtures", "--history-dir", history_dir,
+            ],
+        )
+        assert run_result.exit_code == 0, run_result.output
+        assert "my-trip" in run_result.output
+
+        history_file = tmp_path / "history" / f"{watch_id}.jsonl"
+        assert history_file.exists()
+
+        report_result = runner.invoke(app, ["report", watch_id, "--db-path", db_path])
+        assert report_result.exit_code == 0
+        assert "my-trip" in report_result.output
+        assert "Run history" in report_result.output
+
+        rm_result = runner.invoke(app, ["watch", "rm", watch_id, "--db-path", db_path])
+        assert rm_result.exit_code == 0
+        assert "Removed watch" in rm_result.output
+
+        # history file survives watch deletion -- it's a historical record
+        assert history_file.exists()
+
+    def test_watch_add_missing_required_flags_fails_cleanly(self, tmp_path):
+        db_path = str(tmp_path / "db.sqlite")
+        result = runner.invoke(
+            app, ["watch", "add", "--db-path", db_path, "--from", "LHR"]
+        )
+        assert result.exit_code == 1
+        assert "missing required option" in result.output
+
+    def test_watch_add_from_last_uses_previous_search(self, tmp_path):
+        db_path = str(tmp_path / "db.sqlite")
+        search_result = runner.invoke(app, ["search", *self._search_args()])
+        assert search_result.exit_code == 0
+
+        add_result = runner.invoke(
+            app, ["watch", "add", "--db-path", db_path, "--from-last"]
+        )
+        assert add_result.exit_code == 0, add_result.output
+        assert "Created watch" in add_result.output
+
+    def test_watch_add_from_last_without_a_previous_search_fails_cleanly(self, tmp_path):
+        db_path = str(tmp_path / "db.sqlite")
+        result = runner.invoke(app, ["watch", "add", "--db-path", db_path, "--from-last"])
+        assert result.exit_code == 1
+        assert "no previous search found" in result.output
+
+    def test_watch_rm_unknown_watch_fails_cleanly(self, tmp_path):
+        db_path = str(tmp_path / "db.sqlite")
+        result = runner.invoke(app, ["watch", "rm", "nonexistent", "--db-path", db_path])
+        assert result.exit_code == 1
+        assert "No such watch" in result.output
+
+    def test_report_unknown_watch_fails_cleanly(self, tmp_path):
+        db_path = str(tmp_path / "db.sqlite")
+        result = runner.invoke(app, ["report", "nonexistent", "--db-path", db_path])
+        assert result.exit_code == 1
+        assert "No such watch" in result.output
+
+    def test_watch_run_with_no_watches_reports_that(self, tmp_path):
+        db_path = str(tmp_path / "db.sqlite")
+        result = runner.invoke(app, ["watch", "run", "--db-path", db_path])
+        assert result.exit_code == 0
+        assert "No active watches" in result.output
+
+    def test_watch_run_unknown_watch_id_fails_cleanly(self, tmp_path):
+        db_path = str(tmp_path / "db.sqlite")
+        result = runner.invoke(app, ["watch", "run", "nonexistent", "--db-path", db_path])
+        assert result.exit_code == 1
+        assert "No such watch" in result.output
+
+    def test_watch_run_all_active_watches(self, tmp_path):
+        db_path = str(tmp_path / "db.sqlite")
+        history_dir = str(tmp_path / "history")
+        for name in ("trip-a", "trip-b"):
+            add_result = runner.invoke(
+                app,
+                ["watch", "add", "--db-path", db_path, "--name", name, *self._spec_args()],
+            )
+            assert add_result.exit_code == 0
+
+        run_result = runner.invoke(
+            app, ["watch", "run", "--db-path", db_path, "--history-dir", history_dir]
+        )
+        assert run_result.exit_code == 0
+        assert "trip-a" in run_result.output
+        assert "trip-b" in run_result.output
+
+    def test_watch_add_from_wizard_when_no_flags_given(self, tmp_path):
+        db_path = str(tmp_path / "db.sqlite")
+        answers = (
+            "LHR\nbarcelona\n2027-01-01\n2027-12-31\nthu\nsun\n3\n3\n\n"
+            "2\n2000\nGBP\nnormal\nn\nn\nn\nn\n"
+        )
+        result = runner.invoke(app, ["watch", "add", "--db-path", db_path], input=answers)
+        assert result.exit_code == 0, result.output
+        assert "Created watch" in result.output

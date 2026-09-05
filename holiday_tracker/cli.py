@@ -18,12 +18,13 @@ with an optional self-contained HTML report alongside.
 from __future__ import annotations
 
 import os
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import typer
 from pydantic import ValidationError
 from rich.console import Console
+from rich.table import Table
 
 from holiday_tracker.catalog.loader import resolve_destination
 from holiday_tracker.dates import expand_date_pairs
@@ -44,7 +45,8 @@ from holiday_tracker.providers.fixtures import FixturesFlightProvider, FixturesS
 from holiday_tracker.providers.hotellook import HotellookStayProvider
 from holiday_tracker.providers.http import CachedHttpClient, ResponseCache, TokenBucket
 from holiday_tracker.providers.travelpayouts import TravelpayoutsFlightProvider
-from holiday_tracker.report import print_results, write_html_report
+from holiday_tracker.report import city_label, print_results, write_html_report
+from holiday_tracker.store import db, repo
 from holiday_tracker.wizard import run_wizard
 
 app = typer.Typer(
@@ -56,9 +58,35 @@ app = typer.Typer(
 watch_app = typer.Typer(help="Manage persisted watches that re-price on a schedule.")
 app.add_typer(watch_app, name="watch")
 
-_DEFAULT_CACHE_PATH = Path.home() / ".holiday-tracker" / "http_cache.sqlite"
 _TRAVELPAYOUTS_HOST = "api.travelpayouts.com"
 _HOTELLOOK_HOST = "engine.hotellook.com"
+
+
+def _state_home() -> Path:
+    """Base directory for local, per-machine state (HTTP cache, last search).
+
+    Resolved at call time (not import time) from HOLIDAY_TRACKER_HOME so
+    tests -- and users who want state somewhere other than the default --
+    can redirect it; see conftest.py's autouse fixture, which sets this for
+    every test to guarantee nothing here ever touches a real home directory.
+    """
+    override = os.environ.get("HOLIDAY_TRACKER_HOME")
+    return Path(override) if override else Path.home() / ".holiday-tracker"
+
+
+def _cache_path() -> Path:
+    return _state_home() / "http_cache.sqlite"
+
+
+def _last_search_path() -> Path:
+    return _state_home() / "last_search.json"
+
+
+def _default_history_dir() -> Path:
+    # Resolved at call time (not baked in as a Typer option default at
+    # decoration time) so $HOLIDAY_TRACKER_HISTORY_DIR -- including the
+    # per-test override in conftest.py -- actually takes effect.
+    return Path(os.environ.get("HOLIDAY_TRACKER_HISTORY_DIR", "data/history"))
 
 
 @app.command()
@@ -157,8 +185,9 @@ def _build_providers(provider: str, currency: str) -> tuple[object, object]:
                 err=True,
             )
             raise typer.Exit(code=1)
-        _DEFAULT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        cache = ResponseCache(_DEFAULT_CACHE_PATH)
+        cache_path = _cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache = ResponseCache(cache_path)
         limiters = {
             _TRAVELPAYOUTS_HOST: TokenBucket(rate_per_minute=300),
             _HOTELLOOK_HOST: TokenBucket(rate_per_minute=60),
@@ -224,6 +253,50 @@ def _spec_from_flags(
     )
 
 
+def _require_flags(
+    *, to: str | None, window: str | None, nights: str | None, budget: float | None
+) -> None:
+    """Shared validation for the non-interactive flag surface of both
+    `search` and `watch add`: --from alone isn't enough to skip the wizard,
+    the rest of the core fields must come along with it."""
+    missing = [
+        flag
+        for flag, value in [("--to", to), ("--window", window), ("--nights", nights), ("--budget", budget)]
+        if value is None
+    ]
+    if missing:
+        typer.echo(
+            f"missing required option(s): {', '.join(missing)} "
+            "(or omit --from entirely for the interactive wizard)",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+
+def _save_last_search(spec: SearchSpec) -> None:
+    """Remember the most recent search so `watch add --from-last` can turn
+    it into a watch without retyping every flag."""
+    path = _last_search_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(spec.model_dump_json(), encoding="utf-8")
+
+
+def _load_last_search() -> SearchSpec:
+    path = _last_search_path()
+    if not path.exists():
+        typer.echo(
+            f"no previous search found at {path} -- run `holiday-track search` "
+            "first, or pass search flags directly to `watch add`.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    return SearchSpec.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def _default_watch_name(spec: SearchSpec) -> str:
+    return f"{spec.destination.strip().lower().replace(' ', '_')}-{spec.date_rule.window_start.isoformat()}"
+
+
 def _run_and_report(
     spec: SearchSpec,
     *,
@@ -244,6 +317,8 @@ def _run_and_report(
     except ValueError as exc:
         typer.echo(f"invalid search: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+    _save_last_search(spec)
 
     date_pair_count = len(expand_date_pairs(spec.date_rule))
     estimated_requests = estimate_flight_requests(spec, city_ids)
@@ -318,23 +393,7 @@ def search(
     if from_ is None:
         spec = run_wizard()
     else:
-        missing = [
-            flag
-            for flag, value in [
-                ("--to", to),
-                ("--window", window),
-                ("--nights", nights),
-                ("--budget", budget),
-            ]
-            if value is None
-        ]
-        if missing:
-            typer.echo(
-                f"missing required option(s) for a non-interactive search: {', '.join(missing)} "
-                "(or run `holiday-track search` with no flags for the interactive wizard)",
-                err=True,
-            )
-            raise typer.Exit(code=1)
+        _require_flags(to=to, window=window, nights=nights, budget=budget)
         try:
             spec = _spec_from_flags(
                 from_=from_,
@@ -369,33 +428,237 @@ def search(
 
 
 @app.command()
-def report(watch_id: str = typer.Argument(..., help="Watch id to report on.")) -> None:
+def report(
+    watch_id: str = typer.Argument(..., help="Watch id to report on."),
+    db_path: str | None = typer.Option(None, "--db-path", hidden=True),
+) -> None:
     """Show price history and trend for a tracked watch."""
-    typer.echo(f"holiday-track report {watch_id}: not yet implemented (see project plan, phase 5).")
+    conn = db.get_connection(db_path)
+    watch = repo.get_watch(conn, watch_id)
+    if watch is None:
+        typer.echo(f"No such watch: {watch_id}", err=True)
+        raise typer.Exit(code=1)
+
+    history = repo.run_history(conn, watch_id)
+    console = Console(width=120)
+    console.print(
+        f"[bold]{watch.name}[/] ({watch.id}) -- {watch.spec.destination}, "
+        f"budget {watch.spec.budget}, status {watch.status}"
+    )
+    if not history:
+        console.print(f"No recorded runs yet. Run `holiday-track watch run {watch.id}` to price it.")
+        return
+
+    table = Table(title="Run history")
+    table.add_column("Run at")
+    table.add_column("Best destination")
+    table.add_column("Best total", justify="right")
+    table.add_column("Fits budget?")
+    table.add_column("Candidates", justify="right")
+    for run in history:
+        best = run.best_package
+        table.add_row(
+            run.started_at.strftime("%Y-%m-%d %H:%M"),
+            city_label(best.destination_city_id) if best else ("error" if run.error else "-"),
+            str(best.total_cost) if best else "-",
+            ("yes" if best.fits_budget else "no") if best else "-",
+            str(run.candidates_scanned),
+        )
+    console.print(table)
 
 
 @watch_app.command("add")
-def watch_add() -> None:
-    """Persist a search's constraints as a watch."""
-    typer.echo("holiday-track watch add: not yet implemented (see project plan, phase 5).")
+def watch_add(
+    from_last: bool = typer.Option(
+        False, "--from-last", help="Reuse the constraints from the last `search` run"
+    ),
+    name: str | None = typer.Option(None, "--name", help="A short name for this watch"),
+    from_: str | None = typer.Option(
+        None, "--from", help="Comma-separated origin airport codes, e.g. LHR,LGW"
+    ),
+    to: str | None = typer.Option(None, "--to"),
+    window: str | None = typer.Option(None, "--window"),
+    depart_dow: list[str] = typer.Option([], "--depart-dow"),
+    return_dow: list[str] = typer.Option([], "--return-dow"),
+    nights: str | None = typer.Option(None, "--nights"),
+    blackout: list[str] = typer.Option([], "--blackout"),
+    month: list[int] = typer.Option([], "--month"),
+    budget: float | None = typer.Option(None, "--budget"),
+    currency: str = typer.Option("GBP", "--currency"),
+    party: int = typer.Option(1, "--party"),
+    occupancy: int = typer.Option(2, "--occupancy"),
+    style: str = typer.Option("normal", "--style"),
+    no_hostels: bool = typer.Option(False, "--no-hostels"),
+    min_rating: float | None = typer.Option(None, "--min-rating"),
+    max_centre_km: float | None = typer.Option(None, "--max-centre-km"),
+    free_cancellation: bool = typer.Option(False, "--free-cancellation"),
+    db_path: str | None = typer.Option(None, "--db-path", hidden=True),
+) -> None:
+    """Persist a search's constraints as a watch, so `holiday-track watch
+    run` can re-price it on a schedule and alert you once it first fits
+    budget. Pass --from-last to reuse your last `search`'s constraints,
+    the same flags `search` accepts to build a fresh one, or neither for
+    the interactive wizard.
+    """
+    if from_last:
+        spec = _load_last_search()
+    elif from_ is not None:
+        _require_flags(to=to, window=window, nights=nights, budget=budget)
+        try:
+            spec = _spec_from_flags(
+                from_=from_,
+                to=to,
+                window=window,
+                depart_dow=depart_dow,
+                return_dow=return_dow,
+                nights=nights,
+                blackout=blackout,
+                month=month,
+                budget=budget,
+                currency=currency,
+                party=party,
+                occupancy=occupancy,
+                style=style,
+                no_hostels=no_hostels,
+                min_rating=min_rating,
+                max_centre_km=max_centre_km,
+                free_cancellation=free_cancellation,
+            )
+        except (ValidationError, ValueError) as exc:
+            typer.echo(f"invalid search: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+    else:
+        spec = run_wizard()
+
+    conn = db.get_connection(db_path)
+    watch = repo.create_watch(conn, spec, name or _default_watch_name(spec))
+    typer.echo(
+        f"Created watch {watch.id} ({watch.name}) -- {spec.destination}, budget {spec.budget}.\n"
+        f"Run it with `holiday-track watch run {watch.id}`."
+    )
 
 
 @watch_app.command("list")
-def watch_list() -> None:
-    """List all watches."""
-    typer.echo("holiday-track watch list: not yet implemented (see project plan, phase 5).")
+def watch_list(db_path: str | None = typer.Option(None, "--db-path", hidden=True)) -> None:
+    """List all watches, with the best price known from their last run."""
+    conn = db.get_connection(db_path)
+    watches = repo.list_watches(conn)
+    if not watches:
+        typer.echo("No watches yet. Create one with `holiday-track watch add`.")
+        return
+
+    console = Console(width=120)
+    table = Table(title="Watches")
+    table.add_column("ID")
+    table.add_column("Name")
+    table.add_column("Destination")
+    table.add_column("Budget", justify="right")
+    table.add_column("Status")
+    table.add_column("Last run")
+    table.add_column("Best so far", justify="right")
+
+    for watch in watches:
+        latest = repo.latest_run(conn, watch.id)
+        best = latest.best_package if latest else None
+        best_cell = f"{best.total_cost} ({'fits' if best.fits_budget else 'over'})" if best else "-"
+        table.add_row(
+            watch.id,
+            watch.name,
+            watch.spec.destination,
+            str(watch.spec.budget),
+            watch.status,
+            watch.last_run_at.strftime("%Y-%m-%d %H:%M") if watch.last_run_at else "never",
+            best_cell,
+        )
+    console.print(table)
 
 
 @watch_app.command("rm")
-def watch_rm(watch_id: str = typer.Argument(..., help="Watch id to remove.")) -> None:
-    """Remove a watch."""
-    typer.echo(f"holiday-track watch rm {watch_id}: not yet implemented (see project plan, phase 5).")
+def watch_rm(
+    watch_id: str = typer.Argument(..., help="Watch id to remove."),
+    db_path: str | None = typer.Option(None, "--db-path", hidden=True),
+) -> None:
+    """Remove a watch. Its committed price history (data/history/<id>.jsonl),
+    if any, is left in place -- it's a historical record, not watch state."""
+    conn = db.get_connection(db_path)
+    if repo.delete_watch(conn, watch_id):
+        typer.echo(f"Removed watch {watch_id}.")
+    else:
+        typer.echo(f"No such watch: {watch_id}", err=True)
+        raise typer.Exit(code=1)
 
 
 @watch_app.command("run")
-def watch_run() -> None:
-    """Re-price all active watches (used by the scheduled GitHub Action)."""
-    typer.echo("holiday-track watch run: not yet implemented (see project plan, phase 5-6).")
+def watch_run(
+    watch_id: str | None = typer.Argument(
+        None, help="Only re-price this watch; omit to run every active watch."
+    ),
+    provider: str = typer.Option("fixtures", "--provider", help="fixtures | travelpayouts"),
+    shortlist_size: int = typer.Option(DEFAULT_SHORTLIST_SIZE, "--shortlist-size"),
+    history_dir: Path | None = typer.Option(
+        None,
+        "--history-dir",
+        help="Where to append data/history/<watch>.jsonl summaries "
+        "(default: data/history, or $HOLIDAY_TRACKER_HISTORY_DIR)",
+    ),
+    db_path: str | None = typer.Option(None, "--db-path", hidden=True),
+) -> None:
+    """Re-price one watch, or every active watch if none is given.
+
+    This is what the scheduled GitHub Action (phase 7) runs daily. Each
+    run is recorded in the local database and summarised as one line
+    appended to data/history/<watch>.jsonl. A provider failure on one
+    watch is recorded as that watch's run error rather than aborting the
+    rest of the batch.
+    """
+    resolved_history_dir = history_dir if history_dir is not None else _default_history_dir()
+
+    conn = db.get_connection(db_path)
+    if watch_id is not None:
+        watch = repo.get_watch(conn, watch_id)
+        if watch is None:
+            typer.echo(f"No such watch: {watch_id}", err=True)
+            raise typer.Exit(code=1)
+        watches = [watch]
+    else:
+        watches = [w for w in repo.list_watches(conn) if w.status == "active"]
+
+    if not watches:
+        typer.echo("No active watches to run.")
+        return
+
+    console = Console(width=120)
+    for watch in watches:
+        started_at = datetime.now()
+        flight_provider, stay_provider = _build_providers(provider, watch.spec.budget.currency)
+        results = None
+        error = None
+        try:
+            results = run_search(
+                watch.spec, flight_provider, stay_provider, shortlist_size=shortlist_size
+            )
+        except Exception as exc:  # a provider outage must not abort the rest of the batch
+            error = str(exc)
+        finished_at = datetime.now()
+
+        run = repo.record_run(
+            conn,
+            watch.id,
+            started_at=started_at,
+            finished_at=finished_at,
+            requests_used=getattr(flight_provider, "request_count", 0),
+            results=results,
+            error=error,
+        )
+        repo.append_price_history(resolved_history_dir, watch.id, run)
+
+        if error:
+            console.print(f"[red]{watch.name} ({watch.id}): failed -- {error}[/]")
+        elif run.best_package is not None:
+            status = "fits budget" if run.best_package.fits_budget else "over budget"
+            console.print(f"{watch.name} ({watch.id}): best {run.best_package.total_cost} ({status})")
+        else:
+            console.print(f"{watch.name} ({watch.id}): no candidates matched")
 
 
 if __name__ == "__main__":
