@@ -55,6 +55,13 @@ class TravelpayoutsFlightProvider:
         self._token = token
         self._currency = currency
 
+    @property
+    def request_count(self) -> int:
+        """Requests actually sent to the network so far (cache hits don't
+        count) -- forwarded from the underlying CachedHttpClient so a search
+        run can report how much of the free-tier quota it spent."""
+        return self._http.request_count
+
     def fare_calendar(
         self, origin: str, destination_iata: str, year: int, month: int
     ) -> FareCalendar:
