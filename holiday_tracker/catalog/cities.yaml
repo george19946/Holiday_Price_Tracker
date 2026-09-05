@@ -438,3 +438,35 @@ skopje:
   centre_lat: 41.9973
   centre_lon: 21.428
   currency: MKD
+nice:
+  name: Nice
+  country: France
+  iata:
+  - NCE
+  centre_lat: 43.7102
+  centre_lon: 7.2620
+  currency: EUR
+marseille:
+  name: Marseille
+  country: France
+  iata:
+  - MRS
+  centre_lat: 43.2965
+  centre_lon: 5.3698
+  currency: EUR
+montpellier:
+  name: Montpellier
+  country: France
+  iata:
+  - MPL
+  centre_lat: 43.6108
+  centre_lon: 3.8767
+  currency: EUR
+toulouse:
+  name: Toulouse
+  country: France
+  iata:
+  - TLS
+  centre_lat: 43.6047
+  centre_lon: 1.4442
+  currency: EUR

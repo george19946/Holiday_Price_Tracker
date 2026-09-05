@@ -274,3 +274,23 @@ skopje:
   local_transport: 3
   activities: 6
   currency: EUR
+nice:
+  food: 38
+  local_transport: 7
+  activities: 14
+  currency: EUR
+marseille:
+  food: 30
+  local_transport: 6
+  activities: 11
+  currency: EUR
+montpellier:
+  food: 28
+  local_transport: 5
+  activities: 10
+  currency: EUR
+toulouse:
+  food: 30
+  local_transport: 6
+  activities: 11
+  currency: EUR

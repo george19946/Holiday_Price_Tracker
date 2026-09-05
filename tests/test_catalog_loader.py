@@ -80,6 +80,10 @@ class TestResolveDestination:
         cities = resolve_destination("Balkans")
         assert "belgrade" in cities
 
+    def test_resolves_southern_france_region(self):
+        cities = resolve_destination("Southern France")
+        assert set(cities) == {"nice", "marseille", "montpellier", "toulouse"}
+
     def test_unknown_destination_raises(self):
         with pytest.raises(ValueError, match="unknown destination"):
             resolve_destination("Atlantis")

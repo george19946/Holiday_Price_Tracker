@@ -69,3 +69,10 @@ balkans:
   - dubrovnik
   - tirana
   - skopje
+southern_france:
+  name: Southern France
+  cities:
+  - nice
+  - marseille
+  - montpellier
+  - toulouse

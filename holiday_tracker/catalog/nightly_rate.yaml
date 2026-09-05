@@ -169,3 +169,15 @@ tirana:
 skopje:
   normal: 45
   currency: EUR
+nice:
+  normal: 120
+  currency: EUR
+marseille:
+  normal: 90
+  currency: EUR
+montpellier:
+  normal: 85
+  currency: EUR
+toulouse:
+  normal: 90
+  currency: EUR
