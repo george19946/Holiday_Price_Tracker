@@ -26,6 +26,8 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 
+from holiday_tracker.alerts import rules as alert_rules
+from holiday_tracker.alerts.email import SmtpConfig, send_alert_email
 from holiday_tracker.catalog.loader import resolve_destination
 from holiday_tracker.dates import expand_date_pairs
 from holiday_tracker.engine.search import (
@@ -601,6 +603,9 @@ def watch_run(
         help="Where to append data/history/<watch>.jsonl summaries "
         "(default: data/history, or $HOLIDAY_TRACKER_HISTORY_DIR)",
     ),
+    no_alerts: bool = typer.Option(
+        False, "--no-alerts", help="Skip sending alert emails even if a package now fits budget"
+    ),
     db_path: str | None = typer.Option(None, "--db-path", hidden=True),
 ) -> None:
     """Re-price one watch, or every active watch if none is given.
@@ -609,7 +614,10 @@ def watch_run(
     run is recorded in the local database and summarised as one line
     appended to data/history/<watch>.jsonl. A provider failure on one
     watch is recorded as that watch's run error rather than aborting the
-    rest of the batch.
+    rest of the batch. When a watch's best package first fits its budget,
+    an alert email is sent if SMTP_HOST/SMTP_USER/SMTP_PASS/ALERT_TO are
+    configured (see the README) -- otherwise that's reported, not treated
+    as an error, since alerting is optional.
     """
     resolved_history_dir = history_dir if history_dir is not None else _default_history_dir()
 
@@ -659,6 +667,29 @@ def watch_run(
             console.print(f"{watch.name} ({watch.id}): best {run.best_package.total_cost} ({status})")
         else:
             console.print(f"{watch.name} ({watch.id}): no candidates matched")
+
+        if error or no_alerts:
+            continue
+
+        decision = alert_rules.decide(conn, watch.id, run.best_package)
+        if not decision.should_send:
+            continue
+
+        smtp_config = SmtpConfig.from_env()
+        if smtp_config is None:
+            console.print(
+                "  [yellow]Package fits budget, but no alert sent -- set SMTP_HOST/SMTP_USER/"
+                "SMTP_PASS/ALERT_TO to enable email alerts.[/]"
+            )
+            continue
+
+        try:
+            send_alert_email(smtp_config, watch.name, decision.package)
+        except OSError as exc:
+            console.print(f"  [red]Failed to send alert email: {exc}[/]")
+        else:
+            alert_rules.record_sent(conn, watch.id, decision.fingerprint)
+            console.print(f"  [green]Alert email sent to {smtp_config.recipient}.[/]")
 
 
 if __name__ == "__main__":

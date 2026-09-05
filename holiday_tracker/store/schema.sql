@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS packages (
     spend_minor_units INTEGER NOT NULL,
     total_minor_units INTEGER NOT NULL,
     currency TEXT NOT NULL,
-    fits_budget INTEGER NOT NULL
+    fits_budget INTEGER NOT NULL,
+    stay_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS alerts (

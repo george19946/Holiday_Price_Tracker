@@ -313,3 +313,120 @@ class TestWatchCommands:
         result = runner.invoke(app, ["watch", "add", "--db-path", db_path], input=answers)
         assert result.exit_code == 0, result.output
         assert "Created watch" in result.output
+
+
+class TestWatchRunAlerts:
+    def _add_fitting_watch(self, db_path: str, name: str = "alert-trip") -> str:
+        add_result = runner.invoke(
+            app,
+            [
+                "watch", "add", "--db-path", db_path, "--name", name,
+                "--from", "LHR", "--to", "barcelona",
+                "--window", "2027-03-01:2027-05-31", "--depart-dow", "thu", "--return-dow", "sun",
+                "--nights", "3", "--party", "2", "--budget", "2000",
+            ],
+        )
+        assert add_result.exit_code == 0, add_result.output
+        return add_result.output.split("Created watch ")[1].split(" ")[0]
+
+    def test_fitting_package_with_no_smtp_config_reports_not_sent(self, tmp_path, monkeypatch):
+        for var in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "ALERT_TO"):
+            monkeypatch.delenv(var, raising=False)
+        db_path = str(tmp_path / "db.sqlite")
+        watch_id = self._add_fitting_watch(db_path)
+
+        result = runner.invoke(
+            app,
+            ["watch", "run", watch_id, "--db-path", db_path, "--history-dir", str(tmp_path / "h")],
+        )
+        assert result.exit_code == 0
+        assert "no alert sent" in result.output
+
+    def test_no_alerts_flag_skips_alert_check_entirely(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+        monkeypatch.setenv("SMTP_USER", "user@example.com")
+        monkeypatch.setenv("SMTP_PASS", "secret")
+        monkeypatch.setenv("ALERT_TO", "me@example.com")
+        db_path = str(tmp_path / "db.sqlite")
+        watch_id = self._add_fitting_watch(db_path)
+
+        result = runner.invoke(
+            app,
+            [
+                "watch", "run", watch_id, "--db-path", db_path,
+                "--history-dir", str(tmp_path / "h"), "--no-alerts",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Alert email sent" not in result.output
+        assert "no alert sent" not in result.output
+
+    def test_fitting_package_with_smtp_config_sends_and_dedupes_on_rerun(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+        monkeypatch.setenv("SMTP_USER", "user@example.com")
+        monkeypatch.setenv("SMTP_PASS", "secret")
+        monkeypatch.setenv("ALERT_TO", "me@example.com")
+
+        sent_messages = []
+
+        class _FakeSmtp:
+            def __init__(self, host, port):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return False
+
+            def starttls(self):
+                pass
+
+            def login(self, username, password):
+                pass
+
+            def send_message(self, message):
+                sent_messages.append(message)
+
+        monkeypatch.setattr("holiday_tracker.alerts.email.smtplib.SMTP", _FakeSmtp)
+
+        db_path = str(tmp_path / "db.sqlite")
+        history_dir = str(tmp_path / "h")
+        watch_id = self._add_fitting_watch(db_path)
+
+        first_run = runner.invoke(
+            app, ["watch", "run", watch_id, "--db-path", db_path, "--history-dir", history_dir]
+        )
+        assert first_run.exit_code == 0
+        assert "Alert email sent" in first_run.output
+        assert len(sent_messages) == 1
+
+        # Re-running immediately hits the same package/fingerprint -> cooldown suppresses it.
+        second_run = runner.invoke(
+            app, ["watch", "run", watch_id, "--db-path", db_path, "--history-dir", history_dir]
+        )
+        assert second_run.exit_code == 0
+        assert "Alert email sent" not in second_run.output
+        assert len(sent_messages) == 1
+
+    def test_smtp_failure_is_reported_not_raised(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+        monkeypatch.setenv("SMTP_USER", "user@example.com")
+        monkeypatch.setenv("SMTP_PASS", "secret")
+        monkeypatch.setenv("ALERT_TO", "me@example.com")
+
+        class _FailingSmtp:
+            def __init__(self, host, port):
+                raise OSError("connection refused")
+
+        monkeypatch.setattr("holiday_tracker.alerts.email.smtplib.SMTP", _FailingSmtp)
+
+        db_path = str(tmp_path / "db.sqlite")
+        watch_id = self._add_fitting_watch(db_path)
+
+        result = runner.invoke(
+            app,
+            ["watch", "run", watch_id, "--db-path", db_path, "--history-dir", str(tmp_path / "h")],
+        )
+        assert result.exit_code == 0
+        assert "Failed to send alert email" in result.output

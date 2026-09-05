@@ -17,7 +17,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from holiday_tracker.engine.search import SearchResults
-from holiday_tracker.models import Money, SearchSpec
+from holiday_tracker.models import Money, SearchSpec, StayQuote
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,7 @@ class PackageRecord:
     spend_cost: Money
     total_cost: Money
     fits_budget: bool
+    stay: StayQuote | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ def _row_to_watch(row: sqlite3.Row) -> WatchRecord:
 
 def _row_to_package(row: sqlite3.Row) -> PackageRecord:
     currency = row["currency"]
+    stay_json = row["stay_json"]
     return PackageRecord(
         destination_city_id=row["destination_city_id"],
         origin=row["origin"],
@@ -86,6 +88,7 @@ def _row_to_package(row: sqlite3.Row) -> PackageRecord:
         spend_cost=Money(minor_units=row["spend_minor_units"], currency=currency),
         total_cost=Money(minor_units=row["total_minor_units"], currency=currency),
         fits_budget=bool(row["fits_budget"]),
+        stay=StayQuote.model_validate_json(stay_json) if stay_json else None,
     )
 
 
@@ -180,11 +183,12 @@ def record_run(
 
     packages: list[PackageRecord] = []
     for package in (results.packages if results else []):
+        stay_json = package.stay.model_dump_json() if package.stay is not None else None
         conn.execute(
             "INSERT INTO packages (run_id, destination_city_id, origin, depart_date, "
             "return_date, nights, flights_minor_units, accommodation_minor_units, "
-            "spend_minor_units, total_minor_units, currency, fits_budget) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "spend_minor_units, total_minor_units, currency, fits_budget, stay_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 run_id,
                 package.destination_city_id,
@@ -198,6 +202,7 @@ def record_run(
                 package.total_cost.minor_units,
                 package.total_cost.currency,
                 1 if package.fits_budget else 0,
+                stay_json,
             ),
         )
         packages.append(
@@ -212,6 +217,7 @@ def record_run(
                 spend_cost=package.spend_cost,
                 total_cost=package.total_cost,
                 fits_budget=package.fits_budget,
+                stay=package.stay,
             )
         )
 

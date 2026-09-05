@@ -47,13 +47,15 @@ pricing for only the most promising candidates.
 # style, and accommodation filters as a quick list.
 holiday-track search
 
-# Non-interactive, e.g. for scripts or CI:
+# Non-interactive, e.g. for scripts or CI. Defaults to --provider fixtures
+# (offline, no token needed); pass --provider travelpayouts for real prices.
 holiday-track search \
   --from LON,MAN --to "western europe" \
   --window 2027-01-01:2027-12-31 --depart-dow thu --return-dow sun \
   --nights 3-4 --blackout 2027-12-20:2027-01-03 \
   --budget 500 --party 2 --style normal \
-  --no-hostels --min-rating 7.5 --max-centre-km 3 --free-cancellation
+  --no-hostels --min-rating 7.5 --max-centre-km 3 --free-cancellation \
+  --provider travelpayouts --html-report report.html
 
 # Persist a search as a watch, and re-price it later (this is what the
 # scheduled GitHub Action runs daily):
@@ -74,11 +76,32 @@ Thursday: saves £60. ✅ closes the gap."*
 
 ### Tracking / alerts
 
-`holiday-track watch add` persists a search's constraints to a local SQLite database.
-A scheduled GitHub Actions workflow (`.github/workflows/track.yml`) re-runs active
-watches daily, appends observations to `data/history/`, and emails you the moment a
-watch's best package first comes in at or under budget (with a cooldown so one volatile
-fare doesn't email you repeatedly).
+`holiday-track watch add` persists a search's constraints to a local SQLite database
+(default `~/.holiday-tracker/db.sqlite`; `--from-last` reuses your most recent `search`).
+`holiday-track watch run` re-prices one watch or every active one — this is what the
+scheduled GitHub Actions workflow (`.github/workflows/track.yml`, phase 7) calls daily —
+and appends a summary line to `data/history/<watch-id>.jsonl`, which is committed so the
+repo accumulates a versioned price history. `holiday-track report <watch-id>` shows a
+watch's run history and trend.
+
+Email alerts fire the moment a watch's best package first comes in at or under budget
+(deduplicated per exact package with a 72-hour cooldown, so a fare hovering at the
+boundary doesn't email you repeatedly — a genuinely different or cheaper package still
+alerts immediately). To enable them, set these environment variables (the same names the
+scheduled GitHub Action reads from its secrets):
+
+| Variable | Purpose |
+|---|---|
+| `SMTP_HOST` | SMTP server hostname |
+| `SMTP_PORT` | SMTP port (default `587`, STARTTLS) |
+| `SMTP_USER` | SMTP username |
+| `SMTP_PASS` | SMTP password |
+| `ALERT_FROM` | From address (defaults to `SMTP_USER`) |
+| `ALERT_TO` | Where to send alert emails |
+
+Without these set, `watch run` still works — it just reports that a package fits budget
+without emailing, rather than treating alerting as required. Pass `--no-alerts` to skip
+the check entirely for a given run.
 
 ## Data sources and honest limitations
 
