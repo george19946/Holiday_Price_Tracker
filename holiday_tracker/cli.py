@@ -6,13 +6,13 @@ start avoids Typer's single-command collapsing behaviour, where a Typer
 app with only one registered command invokes it directly and ignores the
 subcommand name on the command line.
 
-`search` is the one fully wired up so far: a non-interactive, flag-driven
-run of the three-stage search engine (holiday_tracker.engine.search)
+`search` runs the three-stage search engine (holiday_tracker.engine.search)
 against either the offline fixtures provider (the default -- no token
-needed) or the real Travelpayouts/Hotellook providers. The interactive
-wizard that asks for these same inputs step by step, plus a properly
-formatted (rich/HTML) report, are phase 4 work; this command's plain-text
-output is what phase 4 replaces.
+needed) or the real Travelpayouts/Hotellook providers, either through the
+interactive wizard (holiday_tracker.wizard, when run with no flags) or a
+non-interactive flag surface (for scripts and the scheduled watch job).
+Results are rendered by holiday_tracker.report as rich terminal tables,
+with an optional self-contained HTML report alongside.
 """
 
 from __future__ import annotations
@@ -23,10 +23,10 @@ from pathlib import Path
 
 import typer
 from pydantic import ValidationError
+from rich.console import Console
 
 from holiday_tracker.catalog.loader import resolve_destination
 from holiday_tracker.dates import expand_date_pairs
-from holiday_tracker.engine.rank import describe_relaxation, suggest_relaxation
 from holiday_tracker.engine.search import (
     DEFAULT_SHORTLIST_SIZE,
     estimate_flight_requests,
@@ -35,7 +35,6 @@ from holiday_tracker.engine.search import (
 from holiday_tracker.models import (
     DateRule,
     Money,
-    Package,
     SearchSpec,
     SpendStyle,
     StayFilters,
@@ -45,6 +44,8 @@ from holiday_tracker.providers.fixtures import FixturesFlightProvider, FixturesS
 from holiday_tracker.providers.hotellook import HotellookStayProvider
 from holiday_tracker.providers.http import CachedHttpClient, ResponseCache, TokenBucket
 from holiday_tracker.providers.travelpayouts import TravelpayoutsFlightProvider
+from holiday_tracker.report import print_results, write_html_report
+from holiday_tracker.wizard import run_wizard
 
 app = typer.Typer(
     name="holiday-track",
@@ -143,29 +144,6 @@ def _parse_blackout(value: str) -> tuple[date, date]:
         ) from exc
 
 
-def _city_label(city_id: str) -> str:
-    return city_id.replace("_", " ").title()
-
-
-def _print_package(package: Package) -> None:
-    typer.echo(
-        f"{_city_label(package.destination_city_id)} ({package.origin} -> "
-        f"{package.depart_date.isoformat()}..{package.return_date.isoformat()}, "
-        f"{package.nights} nights): {package.total_cost} total"
-    )
-    typer.echo(
-        f"    flights {package.flights_cost}  +  stay {package.accommodation_cost}  +  "
-        f"spend {package.spend_cost}"
-    )
-    if package.stay is not None:
-        stay = package.stay
-        typer.echo(
-            f"    stay: {stay.property_type}, rating {stay.rating}, "
-            f"{stay.distance_km} km from centre (observed {stay.observed_at:%Y-%m-%d}, "
-            f"source: {stay.source} -- indicative, verify before booking)"
-        )
-
-
 def _build_providers(provider: str, currency: str) -> tuple[object, object]:
     if provider == "fixtures":
         return FixturesFlightProvider(), FixturesStayProvider()
@@ -196,29 +174,119 @@ def _build_providers(provider: str, currency: str) -> tuple[object, object]:
     raise typer.Exit(code=1)
 
 
+def _spec_from_flags(
+    *,
+    from_: str,
+    to: str,
+    window: str,
+    depart_dow: list[str],
+    return_dow: list[str],
+    nights: str,
+    blackout: list[str],
+    month: list[int],
+    budget: float,
+    currency: str,
+    party: int,
+    occupancy: int,
+    style: str,
+    no_hostels: bool,
+    min_rating: float | None,
+    max_centre_km: float | None,
+    free_cancellation: bool,
+) -> SearchSpec:
+    window_start, window_end = _parse_window(window)
+    nights_min, nights_max = _parse_nights(nights)
+    date_rule = DateRule(
+        window_start=window_start,
+        window_end=window_end,
+        depart_dow={Weekday(d) for d in depart_dow},
+        return_dow={Weekday(d) for d in return_dow},
+        nights_min=nights_min,
+        nights_max=nights_max,
+        blackouts=[_parse_blackout(b) for b in blackout],
+        months=set(month) if month else None,
+    )
+    stay_filters = StayFilters(
+        exclude_hostels=no_hostels,
+        min_rating=min_rating,
+        max_centre_km=max_centre_km,
+        free_cancellation_only=free_cancellation,
+    )
+    return SearchSpec(
+        origins=_parse_origins(from_),
+        destination=to,
+        date_rule=date_rule,
+        budget=Money.from_major(budget, currency.upper()),
+        party_size=party,
+        occupancy_per_room=occupancy,
+        spend_style=SpendStyle(style),
+        stay_filters=stay_filters,
+    )
+
+
+def _run_and_report(
+    spec: SearchSpec,
+    *,
+    provider: str,
+    shortlist_size: int,
+    near_miss_count: int,
+    html_report: Path | None,
+) -> None:
+    # A fixed, generous width rather than terminal auto-detection: this
+    # output is as likely to end up in a redirected log (the scheduled
+    # GitHub Action, a piped report) as in an interactive terminal, and a
+    # narrow auto-detected width (80 columns in most non-tty contexts)
+    # truncates destination names and dates into unreadable ellipses.
+    console = Console(width=120)
+
+    try:
+        city_ids = resolve_destination(spec.destination)
+    except ValueError as exc:
+        typer.echo(f"invalid search: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    date_pair_count = len(expand_date_pairs(spec.date_rule))
+    estimated_requests = estimate_flight_requests(spec, city_ids)
+    console.print(
+        f"Scanning {len(city_ids)} destination(s) x {date_pair_count} date pair(s) "
+        f"(~{estimated_requests} flight-calendar request(s))..."
+    )
+
+    flight_provider, stay_provider = _build_providers(provider, spec.budget.currency)
+    results = run_search(spec, flight_provider, stay_provider, shortlist_size=shortlist_size)
+
+    print_results(console, spec, results, near_miss_count=near_miss_count)
+
+    if html_report is not None:
+        write_html_report(html_report, spec, results, near_miss_count=near_miss_count)
+        console.print(f"\nHTML report written to {html_report}")
+
+
 @app.command()
 def search(
-    from_: str = typer.Option(
-        ..., "--from", help="Comma-separated origin airport codes, e.g. LHR,LGW"
+    from_: str | None = typer.Option(
+        None, "--from", help="Comma-separated origin airport codes, e.g. LHR,LGW"
     ),
-    to: str = typer.Option(
-        ..., "--to", help='Destination city or region, e.g. "Barcelona" or "Western Europe"'
+    to: str | None = typer.Option(
+        None, "--to", help='Destination city or region, e.g. "Barcelona" or "Western Europe"'
     ),
-    window: str = typer.Option(..., "--window", help="START:END, e.g. 2027-01-01:2027-12-31"),
+    window: str | None = typer.Option(
+        None, "--window", help="START:END, e.g. 2027-01-01:2027-12-31"
+    ),
     depart_dow: list[str] = typer.Option(
         [], "--depart-dow", help="e.g. thu (repeatable); omit for any day"
     ),
     return_dow: list[str] = typer.Option(
         [], "--return-dow", help="e.g. sun (repeatable); omit for any day"
     ),
-    nights: str = typer.Option(..., "--nights", help='e.g. "3" or "3-4"'),
+    nights: str | None = typer.Option(None, "--nights", help='e.g. "3" or "3-4"'),
     blackout: list[str] = typer.Option(
         [], "--blackout", help="a date or START:END range to avoid; repeatable"
     ),
     month: list[int] = typer.Option(
         [], "--month", help="restrict departure to month(s) 1-12; repeatable"
     ),
-    budget: float = typer.Option(..., "--budget"),
+    budget: float | None = typer.Option(None, "--budget"),
     currency: str = typer.Option("GBP", "--currency"),
     party: int = typer.Option(1, "--party"),
     occupancy: int = typer.Option(2, "--occupancy", help="guests per room"),
@@ -230,82 +298,73 @@ def search(
     provider: str = typer.Option("fixtures", "--provider", help="fixtures | travelpayouts"),
     shortlist_size: int = typer.Option(DEFAULT_SHORTLIST_SIZE, "--shortlist-size"),
     near_miss_count: int = typer.Option(5, "--near-miss-count"),
+    html_report: Path | None = typer.Option(
+        None, "--html-report", help="Also write a self-contained HTML report to this path"
+    ),
 ) -> None:
-    """Search non-interactively for a holiday that fits the given constraints.
+    """Search for a holiday that fits the given constraints.
 
-    Prints the cheapest package that fits the budget and every stay filter,
-    or -- if none does -- the cheapest near-misses, each annotated with the
-    single cheapest change that would close the gap. Defaults to the
-    offline fixtures provider so this command works with no API token and
-    no network access; pass --provider travelpayouts for real (but cached,
-    indicative -- see the README) prices.
+    Run with no flags for an interactive quick-list wizard that asks for
+    every input one at a time. Pass --from (and the other flags) for a
+    non-interactive run suitable for scripts or the scheduled watch job.
+
+    Either way, prints the cheapest package that fits the budget and every
+    stay filter, or -- if none does -- the cheapest near-misses, each
+    annotated with the single cheapest change that would close the gap.
+    Defaults to the offline fixtures provider so this works with no API
+    token and no network access; pass --provider travelpayouts for real
+    (but cached, indicative -- see the README) prices.
     """
-    try:
-        window_start, window_end = _parse_window(window)
-        date_rule = DateRule(
-            window_start=window_start,
-            window_end=window_end,
-            depart_dow={Weekday(d) for d in depart_dow},
-            return_dow={Weekday(d) for d in return_dow},
-            nights_min=_parse_nights(nights)[0],
-            nights_max=_parse_nights(nights)[1],
-            blackouts=[_parse_blackout(b) for b in blackout],
-            months=set(month) if month else None,
-        )
-        stay_filters = StayFilters(
-            exclude_hostels=no_hostels,
-            min_rating=min_rating,
-            max_centre_km=max_centre_km,
-            free_cancellation_only=free_cancellation,
-        )
-        spec = SearchSpec(
-            origins=_parse_origins(from_),
-            destination=to,
-            date_rule=date_rule,
-            budget=Money.from_major(budget, currency.upper()),
-            party_size=party,
-            occupancy_per_room=occupancy,
-            spend_style=SpendStyle(style),
-            stay_filters=stay_filters,
-        )
-    except (ValidationError, ValueError) as exc:
-        typer.echo(f"invalid search: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+    if from_ is None:
+        spec = run_wizard()
+    else:
+        missing = [
+            flag
+            for flag, value in [
+                ("--to", to),
+                ("--window", window),
+                ("--nights", nights),
+                ("--budget", budget),
+            ]
+            if value is None
+        ]
+        if missing:
+            typer.echo(
+                f"missing required option(s) for a non-interactive search: {', '.join(missing)} "
+                "(or run `holiday-track search` with no flags for the interactive wizard)",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        try:
+            spec = _spec_from_flags(
+                from_=from_,
+                to=to,
+                window=window,
+                depart_dow=depart_dow,
+                return_dow=return_dow,
+                nights=nights,
+                blackout=blackout,
+                month=month,
+                budget=budget,
+                currency=currency,
+                party=party,
+                occupancy=occupancy,
+                style=style,
+                no_hostels=no_hostels,
+                min_rating=min_rating,
+                max_centre_km=max_centre_km,
+                free_cancellation=free_cancellation,
+            )
+        except (ValidationError, ValueError) as exc:
+            typer.echo(f"invalid search: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
 
-    try:
-        city_ids = resolve_destination(spec.destination)
-    except ValueError as exc:
-        typer.echo(f"invalid search: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-
-    date_pair_count = len(expand_date_pairs(date_rule))
-    estimated_requests = estimate_flight_requests(spec, city_ids)
-    typer.echo(
-        f"Scanning {len(city_ids)} destination(s) x {date_pair_count} date pair(s) "
-        f"(~{estimated_requests} flight-calendar request(s))..."
-    )
-
-    flight_provider, stay_provider = _build_providers(provider, currency)
-    results = run_search(spec, flight_provider, stay_provider, shortlist_size=shortlist_size)
-
-    if results.feasible:
-        typer.echo(f"\nFound a holiday that fits {spec.budget}:\n")
-        _print_package(results.feasible[0])
-        return
-
-    if results.near_misses:
-        typer.echo(f"\nNothing fits {spec.budget} exactly. Cheapest alternative(s):\n")
-        for package in results.near_misses[:near_miss_count]:
-            _print_package(package)
-            relaxation = suggest_relaxation(package, results.packages, spec, results.raw_stays)
-            if relaxation is not None:
-                typer.echo(f"    -> {describe_relaxation(package, relaxation)}")
-            typer.echo("")
-        return
-
-    typer.echo(
-        "\nNo results at all. Try loosening the stay filters, widening the date "
-        "window, or checking a different destination."
+    _run_and_report(
+        spec,
+        provider=provider,
+        shortlist_size=shortlist_size,
+        near_miss_count=near_miss_count,
+        html_report=html_report,
     )
 
 
