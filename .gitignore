@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.env
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# runtime state — never commit the DB or secrets
+*.sqlite
+*.sqlite3
+.holiday-tracker/
+
+# editor
+.vscode/
+.idea/
+*.swp
