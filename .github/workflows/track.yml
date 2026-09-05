@@ -1,0 +1,137 @@
+name: Track watches
+
+on:
+  schedule:
+    # Daily. Cron is UTC; adjust to taste.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      add_from:
+        description: "Bootstrap a new watch: comma-separated origin airports, e.g. LHR,LGW (leave every add_* blank to just re-run existing watches)"
+        required: false
+        default: ""
+      add_to:
+        description: 'Bootstrap a new watch: destination, e.g. Barcelona or "Western Europe"'
+        required: false
+        default: ""
+      add_window:
+        description: "Bootstrap a new watch: date window START:END, e.g. 2027-01-01:2027-12-31"
+        required: false
+        default: ""
+      add_nights:
+        description: 'Bootstrap a new watch: nights, e.g. "3" or "3-4"'
+        required: false
+        default: ""
+      add_budget:
+        description: "Bootstrap a new watch: total budget for the party"
+        required: false
+        default: ""
+      add_depart_dow:
+        description: "Bootstrap a new watch: departure day(s), comma-separated e.g. thu"
+        required: false
+        default: ""
+      add_return_dow:
+        description: "Bootstrap a new watch: return day(s), comma-separated e.g. sun"
+        required: false
+        default: ""
+      add_party:
+        description: "Bootstrap a new watch: party size"
+        required: false
+        default: "1"
+      add_name:
+        description: "Bootstrap a new watch: a short name for it"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+# Never run two tracking jobs at once -- both would race to push
+# data/history and to save the watch-database cache.
+concurrency:
+  group: holiday-tracker-track
+  cancel-in-progress: false
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install holiday-tracker
+        run: pip install -e .
+
+      - name: Restore watch database
+        # Watches live in a local SQLite database (~/.holiday-tracker/db.sqlite),
+        # deliberately never committed to the repo -- see the README. A
+        # GitHub-hosted runner is otherwise stateless between runs, so
+        # actions/cache is what makes a watch created via workflow_dispatch
+        # (below) persist for the next scheduled run. The save key embeds
+        # run_id so it never collides with an existing cache entry (meaning
+        # every run's updated database is saved fresh); restore-keys falls
+        # back to the most recent previous entry by prefix match.
+        uses: actions/cache@v4
+        with:
+          path: ~/.holiday-tracker
+          key: holiday-tracker-db-${{ github.run_id }}
+          restore-keys: |
+            holiday-tracker-db-
+
+      - name: Bootstrap a watch (manual trigger only)
+        if: github.event_name == 'workflow_dispatch' && inputs.add_to != ''
+        env:
+          ADD_FROM: ${{ inputs.add_from }}
+          ADD_TO: ${{ inputs.add_to }}
+          ADD_WINDOW: ${{ inputs.add_window }}
+          ADD_NIGHTS: ${{ inputs.add_nights }}
+          ADD_BUDGET: ${{ inputs.add_budget }}
+          ADD_PARTY: ${{ inputs.add_party }}
+          ADD_DEPART_DOW: ${{ inputs.add_depart_dow }}
+          ADD_RETURN_DOW: ${{ inputs.add_return_dow }}
+          ADD_NAME: ${{ inputs.add_name }}
+        run: |
+          set -e
+          args=(watch add --from "$ADD_FROM" --to "$ADD_TO" --window "$ADD_WINDOW" \
+                --nights "$ADD_NIGHTS" --budget "$ADD_BUDGET" --party "$ADD_PARTY")
+          [ -n "$ADD_DEPART_DOW" ] && args+=(--depart-dow "$ADD_DEPART_DOW")
+          [ -n "$ADD_RETURN_DOW" ] && args+=(--return-dow "$ADD_RETURN_DOW")
+          [ -n "$ADD_NAME" ] && args+=(--name "$ADD_NAME")
+          holiday-track "${args[@]}"
+
+      - name: Run watches
+        env:
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          ALERT_FROM: ${{ secrets.ALERT_FROM }}
+          ALERT_TO: ${{ secrets.ALERT_TO }}
+        run: |
+          set -e
+          if [ -n "${TRAVELPAYOUTS_TOKEN:-}" ]; then
+            provider=travelpayouts
+          else
+            provider=fixtures
+            echo "::warning::TRAVELPAYOUTS_TOKEN is not set -- running against the offline fixtures provider, not real prices. Set the TRAVELPAYOUTS_TOKEN repository secret for real tracking."
+          fi
+          holiday-track watch run --provider "$provider"
+
+      - name: Commit updated price history
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/history
+          if git diff --cached --quiet; then
+            echo "No price history changes to commit."
+          else
+            git commit -m "Update price history [skip ci]"
+            git push
+          fi
